@@ -29,12 +29,11 @@ body{
   user-select:none;
 }
 
-/* ═══ Top bar — 悬浮吸顶 ═══ */
+/* ═══ Top bar ═══ */
 .top-bar{
   position:sticky;top:0;z-index:10;
   padding-top:var(--safe-top);
-  background:#ffffff;
-  box-shadow:0 2px 8px rgba(0,0,0,0.08);
+  background:#ffffff;box-shadow:0 2px 8px rgba(0,0,0,0.08);
 }
 .header{padding:12px 16px 8px}
 .header h1{font-size:22px;font-weight:700;letter-spacing:-0.3px;text-align:center}
@@ -48,7 +47,7 @@ body{
 }
 .tab.active{background:var(--card-bg);color:var(--text);box-shadow:0 1px 3px rgba(0,0,0,0.08)}
 
-/* ═══ Menu wrapper + dropdown ═══ */
+/* Menu */
 .menu-wrapper{position:relative;flex-shrink:0}
 .btn-menu{
   flex-shrink:0;width:40px;height:40px;
@@ -61,16 +60,13 @@ body{
 
 .dropdown{
   position:absolute;top:calc(100% + 6px);right:0;
-  background:var(--card-bg);
-  border-radius:12px;
+  background:var(--card-bg);border-radius:12px;
   box-shadow:0 8px 32px rgba(0,0,0,0.14),0 2px 8px rgba(0,0,0,0.06);
   min-width:186px;overflow:hidden;z-index:30;
-  display:none;
-  animation:fadeDown 0.2s ease-out;
+  display:none;animation:fadeDown 0.2s ease-out;
 }
 .dropdown.open{display:block}
 @keyframes fadeDown{from{opacity:0;transform:translateY(-6px)}to{opacity:1;transform:translateY(0)}}
-
 .dropdown-item{
   display:flex;align-items:center;gap:10px;
   padding:13px 16px;font-size:15px;font-weight:500;
@@ -104,33 +100,48 @@ body{
 table{width:100%;border-collapse:collapse}
 th{
   font-size:10px;font-weight:600;color:var(--secondary);
-  text-transform:uppercase;padding:7px 5px;text-align:left;
-  background:#f9f9fb;border-bottom:0.5px solid var(--separator);
-  white-space:nowrap;
+  text-transform:uppercase;padding:6px 4px;text-align:left;
+  background:#f9f9fb;border-bottom:0.5px solid var(--separator);white-space:nowrap;
 }
 td{
-  padding:9px 5px;font-size:13px;font-weight:500;
+  padding:8px 4px;font-size:13px;font-weight:500;
   border-bottom:0.5px solid var(--separator);vertical-align:middle;
 }
 tr:last-child td{border-bottom:none}
 
+/* Customer table column widths (7 cols, tight for mobile) */
 .c-prod{width:auto}
-.c-num{width:32px;text-align:center}
-.c-price{width:46px;text-align:right;font-variant-numeric:tabular-nums}
-.c-prog{width:52px;text-align:center;white-space:nowrap}
-.c-loc{width:50px;text-align:center}
-.c-act{width:30px;text-align:center}
+.c-num{width:28px;text-align:center}
+.c-price-col{width:46px;text-align:right;font-variant-numeric:tabular-nums}
+.c-paid{width:32px;text-align:center}
+.c-prog{width:48px;text-align:center;white-space:nowrap}
+.c-loc{width:44px;text-align:center}
+.c-act{width:26px;text-align:center}
 
-/* Price cell — clickable */
+/* Clickable cells */
+.cell-clickable{
+  cursor:pointer;-webkit-tap-highlight-color:transparent;
+  transition:background 0.15s;border-radius:6px;padding:3px 4px;margin:-3px -2px;display:inline-block;
+}
+.cell-clickable:active{background:#e9f0ff}
+
 .price-clickable{
   cursor:pointer;-webkit-tap-highlight-color:transparent;
-  transition:background 0.15s;border-radius:6px;padding:4px 6px;margin:-4px -2px;display:inline-block;
+  transition:background 0.15s;border-radius:6px;padding:3px 4px;margin:-3px -2px;display:inline-block;
 }
 .price-clickable:active{background:#e9f0ff}
 
+/* Paid checkbox */
+.paid-check{
+  width:20px;height:20px;accent-color:var(--green);
+  cursor:pointer;-webkit-tap-highlight-color:transparent;
+  margin:0;vertical-align:middle;
+}
+.paid-print-text{display:none;font-size:11px;font-weight:600}
+
 /* Product summary table */
-.table-dense th{font-size:10px;padding:6px 5px}
-.table-dense td{font-size:12px;padding:7px 5px}
+.table-dense th{font-size:10px;padding:6px 4px}
+.table-dense td{font-size:12px;padding:7px 4px}
 .col-prod{width:auto}
 .col-num{width:34px;text-align:center}
 .col-price{width:48px;text-align:right;font-variant-numeric:tabular-nums}
@@ -139,34 +150,28 @@ tr:last-child td{border-bottom:none}
 
 /* Status */
 .gap{font-weight:700;font-size:14px}
-.gap.urgent{color:var(--red)}
-.gap.done{color:var(--green)}
+.gap.urgent{color:var(--red)}.gap.done{color:var(--green)}
 .purchased-badge{
   display:inline-flex;align-items:center;gap:3px;
-  font-size:11px;font-weight:600;padding:2px 6px;
+  font-size:11px;font-weight:600;padding:2px 5px;
   border-radius:20px;background:#f2f2f7;
 }
 .purchased-badge.full{background:#e8f8ed;color:var(--green)}
 .status-dot{display:inline-block;width:6px;height:6px;border-radius:50%}
-.status-dot.urgent{background:var(--red)}
-.status-dot.done{background:var(--green)}
+.status-dot.urgent{background:var(--red)}.status-dot.done{background:var(--green)}
 tr.row-urgent{background:#fff5f5}
 tr.row-done{background:#f5fff7}
 
 /* Customer total */
-.customer-total{
-  background:#f9f9fb!important;border-top:2px solid var(--separator)!important;
-}
-.customer-total td{padding:10px 5px!important;font-weight:700;font-size:14px}
+.customer-total{background:#f9f9fb!important;border-top:2px solid var(--separator)!important}
+.customer-total td{padding:10px 4px!important;font-weight:700;font-size:14px}
 
 /* Location group */
 .location-group{margin-bottom:12px}
 .location-toggle{
   display:flex;align-items:center;justify-content:space-between;
-  padding:13px 16px;
-  background:var(--card-bg);border-radius:var(--radius);
-  box-shadow:0 1px 4px rgba(0,0,0,0.04);
-  cursor:pointer;font-weight:700;font-size:16px;
+  padding:13px 16px;background:var(--card-bg);border-radius:var(--radius);
+  box-shadow:0 1px 4px rgba(0,0,0,0.04);cursor:pointer;font-weight:700;font-size:16px;
   transition:background 0.15s;
 }
 .location-toggle:active{background:#f0f0f5}
@@ -177,23 +182,17 @@ tr.row-done{background:#f5fff7}
 
 /* Summary chips */
 .summary-row{display:flex;gap:10px;padding:0 0 12px;flex-wrap:wrap}
-.summary-chip{
-  flex:1;min-width:80px;text-align:center;
-  padding:10px 6px;border-radius:10px;background:#f9f9fb;
-}
+.summary-chip{flex:1;min-width:80px;text-align:center;padding:10px 6px;border-radius:10px;background:#f9f9fb}
 .summary-chip .num{font-size:22px;font-weight:700;letter-spacing:-0.5px}
 .summary-chip .lbl{font-size:11px;color:var(--secondary);margin-top:2px}
 .summary-chip.warn .num{color:var(--red)}
 
 /* Finance panel */
 .finance-panel{
-  position:fixed;
-  bottom:calc(76px + var(--safe-bottom));
+  position:fixed;bottom:calc(76px + var(--safe-bottom));
   left:16px;right:16px;z-index:19;
-  background:var(--card-bg);
-  border-radius:var(--radius);
-  padding:12px 16px;
-  display:flex;align-items:center;justify-content:space-between;
+  background:var(--card-bg);border-radius:var(--radius);
+  padding:12px 16px;display:flex;align-items:center;justify-content:space-between;
   box-shadow:0 -2px 12px rgba(0,0,0,0.06),0 1px 4px rgba(0,0,0,0.04);
 }
 .finance-label{font-size:12px;color:var(--secondary);font-weight:600}
@@ -202,16 +201,13 @@ tr.row-done{background:#f5fff7}
 
 /* Bottom bar */
 .bottom-bar{
-  position:fixed;
-  bottom:calc(10px + var(--safe-bottom));
-  left:16px;right:16px;
-  display:flex;gap:10px;z-index:20;
+  position:fixed;bottom:calc(10px + var(--safe-bottom));
+  left:16px;right:16px;display:flex;gap:10px;z-index:20;
 }
 .bottom-btn{
   flex:1;padding:13px 0;font-size:15px;font-weight:600;
   letter-spacing:-0.2px;border-radius:26px;border:none;
-  cursor:pointer;transition:all 0.2s;
-  white-space:nowrap;text-align:center;
+  cursor:pointer;transition:all 0.2s;white-space:nowrap;text-align:center;
 }
 .bottom-btn:active{transform:scale(0.95);opacity:0.85}
 .btn-add{background:var(--blue);color:#fff;box-shadow:0 4px 16px rgba(0,122,255,0.35)}
@@ -250,27 +246,23 @@ tr.row-done{background:#f5fff7}
   border-color:var(--blue);box-shadow:0 0 0 3px rgba(0,122,255,0.15);background:#fff;
 }
 
-/* JSON preview area */
+/* Large input for price/qty editing */
+.edit-modal-input{
+  font-size:28px!important;font-weight:700!important;
+  text-align:center!important;letter-spacing:-0.5px;padding:16px 14px!important;
+}
+
 .json-preview{
   background:#f4f4f7;border-radius:10px;padding:12px;
   font-size:11px;font-family:'SF Mono','Menlo','Consolas',monospace;
-  max-height:180px;overflow-y:auto;
-  white-space:pre-wrap;word-break:break-all;
-  color:var(--text);line-height:1.5;
-  border:1px solid var(--separator);
-}
-
-/* Price modal */
-.price-modal-input{
-  font-size:28px!important;font-weight:700!important;
-  text-align:center!important;letter-spacing:-0.5px;padding:16px 14px!important;
+  max-height:180px;overflow-y:auto;white-space:pre-wrap;word-break:break-all;
+  color:var(--text);line-height:1.5;border:1px solid var(--separator);
 }
 
 .auto-fill-hint{
   display:inline-block;font-size:11px;font-weight:600;
   color:var(--blue);background:#e9f0ff;
-  padding:2px 8px;border-radius:8px;
-  margin-left:8px;vertical-align:middle;
+  padding:2px 8px;border-radius:8px;margin-left:8px;vertical-align:middle;
   animation:fadeIn 0.3s;
 }
 @keyframes fadeIn{from{opacity:0}to{opacity:1}}
@@ -288,21 +280,12 @@ tr.row-done{background:#f5fff7}
 
 /* Allocation preview */
 .alloc-preview{
-  background:#f9f9fb;border-radius:10px;padding:12px;
-  margin:12px 0;max-height:200px;overflow-y:auto;
+  background:#f9f9fb;border-radius:10px;padding:12px;margin:12px 0;max-height:200px;overflow-y:auto;
 }
-.alloc-item{
-  display:flex;justify-content:space-between;padding:6px 0;
-  font-size:14px;border-bottom:0.5px solid var(--separator);
-}
+.alloc-item{display:flex;justify-content:space-between;padding:6px 0;font-size:14px;border-bottom:0.5px solid var(--separator)}
 .alloc-item:last-child{border-bottom:none}
-.alloc-item .cust{font-weight:600}
-.alloc-item .val{color:var(--green);font-weight:600}
-
-.alloc-summary{
-  text-align:center;font-size:14px;font-weight:600;
-  padding:8px;margin-top:8px;border-radius:8px;
-}
+.alloc-item .cust{font-weight:600}.alloc-item .val{color:var(--green);font-weight:600}
+.alloc-summary{text-align:center;font-size:14px;font-weight:600;padding:8px;margin-top:8px;border-radius:8px}
 .alloc-summary.excess{background:#fff3cd;color:#856404}
 .alloc-summary.all-done{background:#e8f8ed;color:var(--green)}
 
@@ -324,8 +307,7 @@ tr.row-done{background:#f5fff7}
   background:#fff;color:var(--green);
   font-size:16px;font-weight:700;line-height:1;
   cursor:pointer;transition:all 0.15s;
-  -webkit-tap-highlight-color:transparent;
-  padding:0;
+  -webkit-tap-highlight-color:transparent;padding:0;
 }
 .btn-plus1:active{background:var(--green);color:#fff;transform:scale(0.9)}
 
@@ -340,11 +322,7 @@ tr.row-done{background:#f5fff7}
 .toast.show{opacity:1}
 
 /* Tag */
-.tag{
-  display:inline-block;padding:2px 6px;
-  border-radius:8px;font-size:10px;font-weight:600;
-  background:#e9f0ff;color:var(--blue);
-}
+.tag{display:inline-block;padding:2px 6px;border-radius:8px;font-size:10px;font-weight:600;background:#e9f0ff;color:var(--blue)}
 
 /* Sys-stock */
 tr.sys-stock{background:#fffef5}
@@ -356,9 +334,13 @@ tr.sys-stock td{color:#856404}
 @media print{
   .top-bar,.menu-wrapper,.dropdown,.btn-menu,.bottom-bar,.finance-panel,
   .modal-overlay,.toast,.btn-sm,.btn-del,.btn-plus1,.cell-actions,
-  .location-toggle .arrow{
+  .location-toggle .arrow,
+  .paid-check{
     display:none!important;
   }
+
+  /* Show print text for paid status */
+  .paid-print-text{display:inline!important}
 
   body{
     padding:0;background:#ffffff;font-size:12px;color:#1c1c1e;
@@ -370,7 +352,7 @@ tr.sys-stock td{color:#856404}
     padding:16px 0 12px;border-bottom:2px solid #b0b8c0;margin-bottom:14px;color:#1c1c1e;
   }
 
-  .section{display:block!important;margin:0 12px 20px;page-break-before:always}
+  .section{display:block!important;margin:0 10px 20px;page-break-before:always}
   .section:first-of-type{page-break-before:avoid}
   .section:last-of-type{page-break-after:avoid}
 
@@ -382,27 +364,25 @@ tr.sys-stock td{color:#856404}
 
   .card{
     break-inside:avoid;page-break-inside:avoid;
-    box-shadow:none;margin-bottom:10px;border-radius:0;
-    border:1px solid #b0b8c0;
+    box-shadow:none;margin-bottom:10px;border-radius:0;border:1px solid #b0b8c0;
   }
   .card:nth-child(odd){background:#f4f7f9;border-left:4px solid #7b9db8}
   .card:nth-child(even){background:#ffffff;border-left:4px solid #8cad94}
 
   .card-header{
-    font-size:13px!important;font-weight:700!important;
-    color:#37474f!important;background:transparent;
-    padding:10px 14px 6px;border-bottom:1px solid #d8dce0;
+    font-size:13px!important;font-weight:700!important;color:#37474f!important;
+    background:transparent;padding:10px 14px 6px;border-bottom:1px solid #d8dce0;
   }
 
   table{border:1px solid #b0b8c0}
   thead{display:table-header-group}
   th{
     background:#e3e8ed!important;color:#37474f!important;
-    font-size:9px!important;font-weight:700!important;
-    padding:6px 5px!important;border-bottom:2px solid #b0b8c0!important;
+    font-size:8px!important;font-weight:700!important;
+    padding:5px 3px!important;border-bottom:2px solid #b0b8c0!important;
   }
   td{
-    padding:6px 5px!important;font-size:11px!important;
+    padding:5px 3px!important;font-size:10px!important;
     border-bottom:1px solid #d4d9df!important;color:#1c1c1e;
   }
 
@@ -416,15 +396,15 @@ tr.sys-stock td{color:#856404}
   tbody tr.sys-stock:nth-child(even){background:#fef9e7}
 
   .customer-total{background:#eef1f5!important;border-top:2px solid #b0b8c0!important}
-  .customer-total td{font-weight:700!important;font-size:13px!important}
+  .customer-total td{font-weight:700!important;font-size:12px!important}
 
   .gap.urgent{color:#d32f2f!important;font-weight:700}
   .gap.done{color:#2e7d32!important;font-weight:700}
-  .purchased-badge{background:#f2f2f7!important;font-size:10px}
+  .purchased-badge{background:#f2f2f7!important;font-size:9px}
   .purchased-badge.full{background:#e8f8ed!important;color:#2e7d32!important}
   .status-dot.urgent{background:#d32f2f!important}
   .status-dot.done{background:#2e7d32!important}
-  .tag{background:#e9f0ff!important;color:#1565c0!important;font-size:9px}
+  .tag{background:#e9f0ff!important;color:#1565c0!important;font-size:8px}
 
   .location-body{display:block!important;margin-top:0}
   .location-group{break-inside:avoid;page-break-inside:avoid;margin-bottom:12px}
@@ -439,7 +419,7 @@ tr.sys-stock td{color:#856404}
 
   .finance-panel{
     display:flex!important;position:static!important;
-    margin:14px 12px 0;box-shadow:none;
+    margin:14px 10px 0;box-shadow:none;
     border:2px solid #b0b8c0;border-radius:8px;background:#fafbfc!important;
     page-break-before:always;
   }
@@ -454,7 +434,7 @@ tr.sys-stock td{color:#856404}
 </head>
 <body>
 
-<!-- ═══════════ 悬浮吸顶容器 ═══════════ -->
+<!-- ═══════════ 悬浮吸顶 ═══════════ -->
 <div class="top-bar">
   <div class="header"><h1>📒 双表记账</h1></div>
   <div class="tabs">
@@ -462,7 +442,6 @@ tr.sys-stock td{color:#856404}
       <button class="tab active" onclick="switchTab('customers')">👤 客户订单</button>
       <button class="tab" onclick="switchTab('products')">📦 商品汇总</button>
     </div>
-    <!-- 功能菜单 -->
     <div class="menu-wrapper" id="menuWrapper">
       <button class="btn-menu" onclick="event.stopPropagation();toggleMenu()" title="功能菜单">⚙️</button>
       <div class="dropdown" id="dropdownMenu">
@@ -476,14 +455,14 @@ tr.sys-stock td{color:#856404}
 
 <div class="print-title">📒 双表记账</div>
 
-<!-- Tab 1 -->
+<!-- Tab 1: 客户订单 -->
 <div id="tab-customers" class="section active" data-print-label="📋 清单一：按客户分类">
   <div id="customer-table-container">
     <div class="empty-state"><div class="icon">📋</div><p>暂无订单<br>点击底部按钮添加</p></div>
   </div>
 </div>
 
-<!-- Tab 2 -->
+<!-- Tab 2: 商品汇总 -->
 <div id="tab-products" class="section" data-print-label="📦 清单二：商品汇总（按采购地点）">
   <div id="product-summary-chips" class="summary-row"></div>
   <div id="product-table-container">
@@ -493,10 +472,7 @@ tr.sys-stock td{color:#856404}
 
 <!-- 财务看板 -->
 <div class="finance-panel" id="finance-panel">
-  <div>
-    <div class="finance-label">💰 累计采购花费</div>
-    <div class="finance-sub" id="finance-orders">0 笔入库</div>
-  </div>
+  <div><div class="finance-label">💰 累计采购花费</div><div class="finance-sub" id="finance-orders">0 笔入库</div></div>
   <div class="finance-value" id="finance-total">¥0.00</div>
 </div>
 
@@ -542,10 +518,23 @@ tr.sys-stock td{color:#856404}
   <div class="modal-sheet">
     <h2 id="price-modal-title">修改售价</h2>
     <p class="modal-hint" id="price-modal-sub"></p>
-    <div class="form-group"><input type="number" id="input-edit-price" class="price-modal-input" min="0" step="0.01" inputmode="decimal" placeholder="0"></div>
+    <div class="form-group"><input type="number" id="input-edit-price" class="edit-modal-input" min="0" step="0.01" inputmode="decimal" placeholder="0"></div>
     <div class="btn-row">
       <button class="btn btn-ghost" onclick="closePriceModal()">取消</button>
       <button class="btn btn-primary" onclick="confirmPriceEdit()">确定</button>
+    </div>
+  </div>
+</div>
+
+<!-- ============ Modal: 通用字段编辑（商品名 / 数量） ============ -->
+<div class="modal-overlay" id="modal-edit-field">
+  <div class="modal-sheet">
+    <h2 id="edit-field-title">修改</h2>
+    <p class="modal-hint" id="edit-field-hint"></p>
+    <div class="form-group"><input type="text" id="input-edit-field" class="edit-modal-input" autocomplete="off"></div>
+    <div class="btn-row">
+      <button class="btn btn-ghost" onclick="closeEditFieldModal()">取消</button>
+      <button class="btn btn-primary" onclick="confirmEditField()">确定</button>
     </div>
   </div>
 </div>
@@ -607,10 +596,11 @@ tr.sys-stock td{color:#856404}
 <script>
 // ═══════════════════════════════════════════════════════
 // 数据层
+// orders: { id, customer, product, qty, sellingPrice, purchased, isPaid, location }
 // ═══════════════════════════════════════════════════════
-const ORDERS_KEY='dual_table_orders_v5';
-const LOGS_KEY='dual_table_purchase_logs_v5';
-const META_KEY='dual_table_product_meta_v5';
+const ORDERS_KEY='dual_table_orders_v6';
+const LOGS_KEY='dual_table_purchase_logs_v6';
+const META_KEY='dual_table_product_meta_v6';
 const SYS_CUSTOMER='【系统库存】';
 
 function load(key){try{const r=localStorage.getItem(key);return r?JSON.parse(r):[]}catch{return[]}}
@@ -622,8 +612,13 @@ let productMeta=load(META_KEY);
 if(!productMeta||typeof productMeta!=='object')productMeta={};
 let pendingAlloc=null;
 let editingOrderId=null;
+let editingField=null;  // { orderId, field:'product'|'qty' }
 
-for(const o of orders){if(o.sellingPrice===undefined)o.sellingPrice=0;}
+// 迁移旧数据
+for(const o of orders){
+  if(o.sellingPrice===undefined)o.sellingPrice=0;
+  if(o.isPaid===undefined)o.isPaid=false;
+}
 
 function getProductMeta(p){return productMeta[p]||{lastLocation:'',lastPrice:0};}
 function updateProductMeta(product,location,price){
@@ -644,25 +639,13 @@ function toast(msg){
 // ═══════════════════════════════════════════════════════
 // 功能菜单
 // ═══════════════════════════════════════════════════════
-function toggleMenu(){
-  document.getElementById('dropdownMenu').classList.toggle('open');
-}
-function closeMenu(){
-  document.getElementById('dropdownMenu').classList.remove('open');
-}
-function doPrint(){
-  closeMenu();
-  setTimeout(()=>window.print(),150);
-}
-
-// 点击菜单以外关闭
-document.addEventListener('click',function(e){
-  const wrapper=document.getElementById('menuWrapper');
-  if(!wrapper.contains(e.target))closeMenu();
-});
+function toggleMenu(){document.getElementById('dropdownMenu').classList.toggle('open');}
+function closeMenu(){document.getElementById('dropdownMenu').classList.remove('open');}
+function doPrint(){closeMenu();setTimeout(()=>window.print(),150);}
+document.addEventListener('click',function(e){const w=document.getElementById('menuWrapper');if(!w.contains(e.target))closeMenu();});
 
 // ═══════════════════════════════════════════════════════
-// 导出备份
+// 导出 / 导入备份
 // ═══════════════════════════════════════════════════════
 function openExportModal(){
   closeMenu();
@@ -671,12 +654,10 @@ function openExportModal(){
   document.getElementById('modal-export').classList.add('show');
 }
 function closeExportModal(){document.getElementById('modal-export').classList.remove('show');}
-
 function copyBackup(){
   const text=document.getElementById('export-json-text').textContent;
-  if(navigator.clipboard&&navigator.clipboard.writeText){
-    navigator.clipboard.writeText(text).then(()=>toast('✅ 备份数据已复制到剪切板')).catch(()=>fallbackCopy(text));
-  }else{fallbackCopy(text);}
+  if(navigator.clipboard&&navigator.clipboard.writeText){navigator.clipboard.writeText(text).then(()=>toast('✅ 备份数据已复制到剪切板')).catch(()=>fallbackCopy(text));}
+  else fallbackCopy(text);
 }
 function fallbackCopy(text){
   const ta=document.createElement('textarea');ta.value=text;ta.style.position='fixed';ta.style.left='-9999px';
@@ -684,86 +665,50 @@ function fallbackCopy(text){
   try{document.execCommand('copy');toast('✅ 备份数据已复制到剪切板')}catch(e){toast('复制失败，请手动全选复制')}
   document.body.removeChild(ta);
 }
-
-// ═══════════════════════════════════════════════════════
-// 导入备份
-// ═══════════════════════════════════════════════════════
-function openImportModal(){
-  closeMenu();
-  document.getElementById('input-import-json').value='';
-  document.getElementById('modal-import').classList.add('show');
-  setTimeout(()=>document.getElementById('input-import-json').focus(),300);
-}
+function openImportModal(){closeMenu();document.getElementById('input-import-json').value='';document.getElementById('modal-import').classList.add('show');setTimeout(()=>document.getElementById('input-import-json').focus(),300);}
 function closeImportModal(){document.getElementById('modal-import').classList.remove('show');}
-
 function confirmImport(){
   const raw=document.getElementById('input-import-json').value.trim();
   if(!raw){toast('请先粘贴备份数据');return;}
-
-  let data;
-  try{data=JSON.parse(raw);}
-  catch(e){toast('❌ JSON 格式错误，无法解析');return;}
-
-  // 校验必要字段
+  let data;try{data=JSON.parse(raw);}catch(e){toast('❌ JSON 格式错误，无法解析');return;}
   if(!data.orders||!Array.isArray(data.orders)){toast('❌ 数据格式不正确：缺少 orders');return;}
   if(!data.purchaseLogs||!Array.isArray(data.purchaseLogs)){toast('❌ 数据格式不正确：缺少 purchaseLogs');return;}
   if(!data.productMeta||typeof data.productMeta!=='object'){toast('❌ 数据格式不正确：缺少 productMeta');return;}
-
   if(!confirm('确定要导入备份吗？当前数据将被覆盖。'))return;
-
-  save(ORDERS_KEY,data.orders);
-  save(LOGS_KEY,data.purchaseLogs);
-  save(META_KEY,data.productMeta);
-
-  // 重新加载
-  orders=data.orders;
-  purchaseLogs=data.purchaseLogs;
-  productMeta=data.productMeta;
-  renderAll();
-  closeImportModal();
-  toast('✅ 备份数据已成功导入并加载');
+  save(ORDERS_KEY,data.orders);save(LOGS_KEY,data.purchaseLogs);save(META_KEY,data.productMeta);
+  orders=data.orders;purchaseLogs=data.purchaseLogs;productMeta=data.productMeta;
+  renderAll();closeImportModal();toast('✅ 备份数据已成功导入并加载');
 }
 
 // ═══════════════════════════════════════════════════════
 // NLP 解析
 // ═══════════════════════════════════════════════════════
 function parseOrderInput(raw){
-  const parts=raw.trim().split(/\s+/);
-  if(parts.length<3)return null;
-  const numIdxs=[];
-  for(let i=0;i<parts.length;i++){if(/^\d+(\.\d+)?$/.test(parts[i]))numIdxs.push(i);}
+  const parts=raw.trim().split(/\s+/);if(parts.length<3)return null;
+  const numIdxs=[];for(let i=0;i<parts.length;i++){if(/^\d+(\.\d+)?$/.test(parts[i]))numIdxs.push(i);}
   if(numIdxs.length===0||numIdxs[0]===0)return null;
   const firstNumIdx=numIdxs[0],lastNumIdx=numIdxs[numIdxs.length-1];
-  const customer=parts[0];
-  const qty=parseInt(parts[firstNumIdx],10);
+  const customer=parts[0];const qty=parseInt(parts[firstNumIdx],10);
   if(!customer||isNaN(qty)||qty<1)return null;
-  let sellingPrice=0;
-  if(numIdxs.length>=2){sellingPrice=parseFloat(parts[numIdxs[1]]);if(isNaN(sellingPrice))sellingPrice=0;}
-  const product=parts.slice(1,firstNumIdx).join(' ');
-  const location=parts.slice(lastNumIdx+1).join(' ');
+  let sellingPrice=0;if(numIdxs.length>=2){sellingPrice=parseFloat(parts[numIdxs[1]]);if(isNaN(sellingPrice))sellingPrice=0;}
+  const product=parts.slice(1,firstNumIdx).join(' ');const location=parts.slice(lastNumIdx+1).join(' ');
   if(!product)return null;
   return{customer,product,qty,sellingPrice,location};
 }
-
 function parseStockInput(raw){
-  const parts=raw.trim().split(/\s+/);
-  if(parts.length<2)return null;
-  const numIdxs=[];
-  for(let i=0;i<parts.length;i++){if(/^\d+(\.\d+)?$/.test(parts[i]))numIdxs.push(i);}
+  const parts=raw.trim().split(/\s+/);if(parts.length<2)return null;
+  const numIdxs=[];for(let i=0;i<parts.length;i++){if(/^\d+(\.\d+)?$/.test(parts[i]))numIdxs.push(i);}
   if(numIdxs.length===0)return null;
   const firstNumIdx=numIdxs[0],lastNumIdx=numIdxs[numIdxs.length-1];
-  const product=parts.slice(0,firstNumIdx).join(' ');
-  if(!product)return null;
-  const qty=parseInt(parts[firstNumIdx],10);
-  if(isNaN(qty)||qty<1)return null;
-  let unitPrice=0;
-  if(numIdxs.length>=2){unitPrice=parseFloat(parts[numIdxs[1]]);if(isNaN(unitPrice))unitPrice=0;}
+  const product=parts.slice(0,firstNumIdx).join(' ');if(!product)return null;
+  const qty=parseInt(parts[firstNumIdx],10);if(isNaN(qty)||qty<1)return null;
+  let unitPrice=0;if(numIdxs.length>=2){unitPrice=parseFloat(parts[numIdxs[1]]);if(isNaN(unitPrice))unitPrice=0;}
   const location=parts.slice(lastNumIdx+1).join(' ');
   return{product,qty,unitPrice,location};
 }
 
 // ═══════════════════════════════════════════════════════
-// 系统库存消耗 + 分配引擎
+// 系统库存消耗 / 分配引擎
 // ═══════════════════════════════════════════════════════
 function autoConsumeSystemStock(newOrderId){
   const newOrder=orders.find(o=>o.id===newOrderId);
@@ -773,30 +718,25 @@ function autoConsumeSystemStock(newOrderId){
   for(const s of stockItems){
     if(newOrder.purchased>=newOrder.qty)break;
     const avail=s.purchased;if(avail<=0)continue;
-    const gap=newOrder.qty-newOrder.purchased;
-    const take=Math.min(gap,avail);
+    const gap=newOrder.qty-newOrder.purchased;const take=Math.min(gap,avail);
     newOrder.purchased+=take;s.purchased-=take;s.qty-=take;consumed+=take;
   }
   orders=orders.filter(o=>!(o.customer===SYS_CUSTOMER&&o.purchased<=0));
   save(ORDERS_KEY,orders);
   if(consumed>0)toast('📦 自动从系统库存消耗了 '+consumed+' 个「'+newOrder.product+'」');
 }
-
 function allocatePurchase(product,qty,unitPrice,location){
   const targets=[];
   for(const o of orders){if(o.customer!==SYS_CUSTOMER&&o.product===product&&o.purchased<o.qty)targets.push(o);}
-  let remaining=qty;
-  const allocated=[];
+  let remaining=qty;const allocated=[];
   for(const o of targets){
     if(remaining<=0)break;
-    const gap=o.qty-o.purchased;
-    const give=Math.min(gap,remaining);
+    const gap=o.qty-o.purchased;const give=Math.min(gap,remaining);
     allocated.push({customer:o.customer,product:o.product,allocated:give,gapBefore:gap,gapAfter:gap-give});
     remaining-=give;
   }
   return{allocated,remaining,product,totalQty:qty,unitPrice,location};
 }
-
 function getLatestPrice(product){const m=getProductMeta(product);return m.lastPrice||0;}
 
 // ═══════════════════════════════════════════════════════
@@ -805,11 +745,9 @@ function getLatestPrice(product){const m=getProductMeta(product);return m.lastPr
 function getProductSummaryByLocation(){
   const map={};
   for(const o of orders){
-    const loc=o.location||'未指定地点';
-    if(!map[loc])map[loc]={};
+    const loc=o.location||'未指定地点';if(!map[loc])map[loc]={};
     if(!map[loc][o.product])map[loc][o.product]={product:o.product,total:0,purchased:0};
-    map[loc][o.product].total+=o.qty;
-    map[loc][o.product].purchased+=o.purchased;
+    map[loc][o.product].total+=o.qty;map[loc][o.product].purchased+=o.purchased;
   }
   const result=[];
   for(const[loc,prods]of Object.entries(map)){
@@ -820,7 +758,7 @@ function getProductSummaryByLocation(){
 }
 
 // ═══════════════════════════════════════════════════════
-// 渲染：客户订单
+// 渲染：客户订单（7 列：商品 | 数量 | 售价 | 收款 | 已采购 | 地点 | 删）
 // ═══════════════════════════════════════════════════════
 function renderCustomers(){
   const container=document.getElementById('customer-table-container');
@@ -829,23 +767,20 @@ function renderCustomers(){
     return;
   }
   const grouped={};
-  for(const o of orders){
-    if(!grouped[o.customer])grouped[o.customer]=[];
-    grouped[o.customer].push(o);
-  }
+  for(const o of orders){if(!grouped[o.customer])grouped[o.customer]=[];grouped[o.customer].push(o);}
   const keys=Object.keys(grouped).sort((a,b)=>{
-    if(a===SYS_CUSTOMER)return 1;if(b===SYS_CUSTOMER)return-1;
-    return a.localeCompare(b,'zh');
+    if(a===SYS_CUSTOMER)return 1;if(b===SYS_CUSTOMER)return-1;return a.localeCompare(b,'zh');
   });
   let html='';
   for(const customer of keys){
-    const items=grouped[customer];
-    const isSys=customer===SYS_CUSTOMER;
+    const items=grouped[customer];const isSys=customer===SYS_CUSTOMER;
     let customerTotal=0;
     for(const it of items)customerTotal+=it.qty*(it.sellingPrice||0);
+
     html+='<div class="card" style="margin-bottom:12px">';
     html+='<div class="card-header" style="font-size:15px;color:var(--text);font-weight:700;">'+(isSys?'📦':'👤')+' '+esc(customer)+'</div>';
-    html+='<table><thead><tr><th class="c-prod">商品</th><th class="c-num">数量</th><th class="c-price">售价</th><th class="c-prog">已采购</th><th class="c-loc">地点</th><th class="c-act"></th></tr></thead><tbody>';
+    html+='<table><thead><tr><th class="c-prod">商品</th><th class="c-num">数量</th><th class="c-price-col">售价</th><th class="c-paid">收款</th><th class="c-prog">已采购</th><th class="c-loc">地点</th><th class="c-act"></th></tr></thead><tbody>';
+
     for(const item of items){
       const gap=item.qty-item.purchased;
       const rowClass=(isSys?'sys-stock ':'')+(gap>0?'row-urgent':'row-done');
@@ -853,18 +788,27 @@ function renderCustomers(){
       const badgeClass=gap===0?'full':'';
       const sp=item.sellingPrice||0;
       const priceStr=sp>0?'¥'+sp.toFixed(2):'-';
+
       html+='<tr class="tap-row '+rowClass.trim()+'">';
-      html+='<td style="font-weight:600">'+esc(item.product)+'</td>';
-      html+='<td class="c-num">'+item.qty+'</td>';
-      html+='<td class="c-price" style="font-weight:600;color:'+(sp>0?'var(--text)':'var(--secondary)')+'">';
-      html+='<span class="price-clickable" onclick="event.stopPropagation();openPriceModal(\''+item.id+'\')" title="点击修改售价">'+priceStr+'</span>';
-      html+='</td>';
+      // 商品名 — 可点击修改
+      html+='<td style="font-weight:600"><span class="cell-clickable" onclick="event.stopPropagation();openEditFieldModal(\''+item.id+'\',\'product\')" title="点击修改商品名">'+esc(item.product)+'</span></td>';
+      // 数量 — 可点击修改
+      html+='<td class="c-num"><span class="cell-clickable" onclick="event.stopPropagation();openEditFieldModal(\''+item.id+'\',\'qty\')" title="点击修改数量">'+item.qty+'</span></td>';
+      // 售价 — 可点击修改
+      html+='<td class="c-price-col" style="font-weight:600;color:'+(sp>0?'var(--text)':'var(--secondary)')+'"><span class="price-clickable" onclick="event.stopPropagation();openPriceModal(\''+item.id+'\')" title="点击修改售价">'+priceStr+'</span></td>';
+      // 收款 — 复选框（屏幕可见）+ 打印文字
+      html+='<td class="c-paid"><span class="paid-cell"><input type="checkbox" class="paid-check" '+(item.isPaid?'checked':'')+' onclick="event.stopPropagation();togglePaid(\''+item.id+'\')" title="标记已收款"><span class="paid-print-text" style="color:'+(item.isPaid?'var(--green)':'var(--secondary)')+'">'+(item.isPaid?'已付':'未付')+'</span></span></td>';
+      // 已采购
       html+='<td class="c-prog"><span class="purchased-badge '+badgeClass+'"><span class="status-dot '+gapClass+'"></span>'+item.purchased+'/'+item.qty+'</span></td>';
+      // 地点
       html+='<td class="c-loc">'+(item.location?'<span class="tag">'+esc(item.location)+'</span>':'-')+'</td>';
+      // 删除
       html+='<td class="c-act"><button class="btn-sm btn-del" onclick="event.stopPropagation();deleteOrder(\''+item.id+'\')" title="删除">🗑</button></td>';
       html+='</tr>';
     }
-    html+='<tr class="customer-total"><td colspan="2" style="text-align:right">💰 小计</td><td class="c-price" style="color:var(--red)!important;font-size:14px!important">'+(customerTotal>0?'¥'+customerTotal.toFixed(2):'-')+'</td><td colspan="3"></td></tr>';
+
+    // 小计
+    html+='<tr class="customer-total"><td colspan="2" style="text-align:right">💰 小计</td><td class="c-price-col" style="color:var(--red)!important;font-size:14px!important">'+(customerTotal>0?'¥'+customerTotal.toFixed(2):'-')+'</td><td colspan="4"></td></tr>';
     html+='</tbody></table></div>';
   }
   container.innerHTML=html;
@@ -884,9 +828,7 @@ function renderProducts(){
     '<div class="summary-chip"><div class="num">'+totalKinds+'</div><div class="lbl">商品种类</div></div>'+
     '<div class="summary-chip warn"><div class="num">'+urgentKinds+'</div><div class="lbl">待采购</div></div>'+
     '<div class="summary-chip warn"><div class="num">'+totalGap+'</div><div class="lbl">总缺口</div></div>';
-  if(summary.length===0){
-    container.innerHTML='<div class="empty-state"><div class="icon">📦</div><p>暂无商品数据</p></div>';return;
-  }
+  if(summary.length===0){container.innerHTML='<div class="empty-state"><div class="icon">📦</div><p>暂无商品数据</p></div>';return;}
   let html='';
   for(const loc of summary){
     const locGap=loc.products.reduce((s,p)=>s+Math.max(0,p.total-p.purchased),0);
@@ -898,17 +840,10 @@ function renderProducts(){
     html+='<div class="location-body" data-location="'+escJs(loc.location)+'">';
     html+='<table class="table-dense"><thead><tr><th class="col-prod">商品</th><th class="col-num">总需</th><th class="col-num">已采</th><th class="col-price">单价</th><th class="col-gap">缺口</th><th class="col-act"></th></tr></thead><tbody>';
     for(const p of loc.products){
-      const gap=p.total-p.purchased;
-      const rowClass=gap>0?'row-urgent':'row-done';
+      const gap=p.total-p.purchased;const rowClass=gap>0?'row-urgent':'row-done';
       const price=getLatestPrice(p.product);
       const priceStr=price>0?'¥'+price.toFixed(2):'<span style="color:#ccc">-</span>';
-      html+='<tr class="'+rowClass+'">';
-      html+='<td style="font-weight:600">'+esc(p.product)+'</td>';
-      html+='<td class="col-num">'+p.total+'</td><td class="col-num">'+p.purchased+'</td>';
-      html+='<td class="col-price" style="font-size:11px;font-weight:600">'+priceStr+'</td>';
-      html+='<td class="col-gap">'+(gap>0?'<span class="gap urgent">'+gap+'</span>':'<span class="gap done">✓</span>')+'</td>';
-      html+='<td class="col-act"><button class="btn-plus1" onclick="event.stopPropagation();quickStockIn(\''+escJs(p.product)+'\')" title="快捷入库 +1">+</button></td>';
-      html+='</tr>';
+      html+='<tr class="'+rowClass+'"><td style="font-weight:600">'+esc(p.product)+'</td><td class="col-num">'+p.total+'</td><td class="col-num">'+p.purchased+'</td><td class="col-price" style="font-size:11px;font-weight:600">'+priceStr+'</td><td class="col-gap">'+(gap>0?'<span class="gap urgent">'+gap+'</span>':'<span class="gap done">✓</span>')+'</td><td class="col-act"><button class="btn-plus1" onclick="event.stopPropagation();quickStockIn(\''+escJs(p.product)+'\')" title="快捷入库 +1">+</button></td></tr>';
     }
     html+='</tbody></table></div></div>';
   }
@@ -925,10 +860,7 @@ function captureExpandedLocations(){
 }
 function restoreExpandedLocations(expanded){
   if(!expanded||expanded.size===0)return;
-  document.querySelectorAll('.location-body').forEach(b=>{
-    const loc=b.getAttribute('data-location');
-    if(loc&&expanded.has(loc)){b.classList.add('open');const t=b.previousElementSibling;if(t){const a=t.querySelector('.arrow');if(a)a.classList.add('open');}}
-  });
+  document.querySelectorAll('.location-body').forEach(b=>{const loc=b.getAttribute('data-location');if(loc&&expanded.has(loc)){b.classList.add('open');const t=b.previousElementSibling;if(t){const a=t.querySelector('.arrow');if(a)a.classList.add('open');}}});
 }
 function renderFinance(){
   const productPurchased={};
@@ -943,14 +875,10 @@ function renderAll(){
   renderCustomers();renderProducts();renderFinance();
   restoreExpandedLocations(expanded);
 }
-
-function toggleLocation(toggleEl){
-  const body=toggleEl.nextElementSibling,arrow=toggleEl.querySelector('.arrow');
-  body.classList.toggle('open');arrow.classList.toggle('open');
-}
+function toggleLocation(toggleEl){const body=toggleEl.nextElementSibling,arrow=toggleEl.querySelector('.arrow');body.classList.toggle('open');arrow.classList.toggle('open');}
 
 // ═══════════════════════════════════════════════════════
-// 快捷入库 / 删除 / 改价 / Tab
+// 操作：快捷入库 / 删除 / 收款打钩
 // ═══════════════════════════════════════════════════════
 function quickStockIn(product){
   const target=orders.find(o=>o.customer!==SYS_CUSTOMER&&o.product===product&&o.purchased<o.qty);
@@ -958,20 +886,77 @@ function quickStockIn(product){
   else{
     const existing=orders.find(o=>o.customer===SYS_CUSTOMER&&o.product===product);
     if(existing){existing.qty++;existing.purchased++;}
-    else orders.push({id:genId(),customer:SYS_CUSTOMER,product,qty:1,sellingPrice:0,purchased:1,location:''});
+    else orders.push({id:genId(),customer:SYS_CUSTOMER,product,qty:1,sellingPrice:0,purchased:1,isPaid:false,location:''});
   }
   const price=getLatestPrice(product),cost=price>0?price:0;
   purchaseLogs.push({id:genId(),product,qty:1,unitPrice:price,totalCost:cost,location:'',timestamp:Date.now()});
-  save(ORDERS_KEY,orders);save(LOGS_KEY,purchaseLogs);
-  renderAll();
+  save(ORDERS_KEY,orders);save(LOGS_KEY,purchaseLogs);renderAll();
   toast('✅ '+product+' +1 已入库'+(cost>0?'（¥'+cost.toFixed(2)+'）':''));
 }
-
 function deleteOrder(id){
   if(!confirm('确定删除？'))return;
   orders=orders.filter(o=>o.id!==id);save(ORDERS_KEY,orders);renderAll();toast('已删除');
 }
+function togglePaid(id){
+  const order=orders.find(o=>o.id===id);
+  if(!order)return;
+  order.isPaid=!order.isPaid;
+  save(ORDERS_KEY,orders);
+  // 局部更新 DOM 复选框和打印文字，避免全量刷新
+  const cb=document.querySelector('.paid-check[onclick*="'+id+'"]');
+  if(cb)cb.checked=order.isPaid;
+  const printSpan=cb?cb.parentElement.querySelector('.paid-print-text'):null;
+  if(printSpan){printSpan.textContent=order.isPaid?'已付':'未付';printSpan.style.color=order.isPaid?'var(--green)':'var(--secondary)';}
+  toast(order.isPaid?'✅ 已标记收款':'↩️ 已取消收款');
+}
 
+// ═══════════════════════════════════════════════════════
+// 通用字段编辑 Modal（商品名 / 数量）
+// ═══════════════════════════════════════════════════════
+function openEditFieldModal(orderId,field){
+  const order=orders.find(o=>o.id===orderId);if(!order)return;
+  editingField={orderId,field};
+  const title=document.getElementById('edit-field-title');
+  const hint=document.getElementById('edit-field-hint');
+  const input=document.getElementById('input-edit-field');
+
+  if(field==='product'){
+    title.textContent='修改商品名称';
+    hint.textContent=order.customer+' 的订单';
+    input.value=order.product;
+    input.type='text';input.inputMode='text';input.setAttribute('inputmode','text');
+  }else{
+    title.textContent='修改数量';
+    hint.textContent=order.customer+' — '+order.product;
+    input.value=order.qty;
+    input.type='number';input.inputMode='numeric';input.setAttribute('inputmode','numeric');
+    input.min='1';input.step='1';
+  }
+  document.getElementById('modal-edit-field').classList.add('show');
+  setTimeout(()=>{input.focus();input.select();},300);
+}
+function closeEditFieldModal(){document.getElementById('modal-edit-field').classList.remove('show');editingField=null;}
+function confirmEditField(){
+  if(!editingField)return;
+  const order=orders.find(o=>o.id===editingField.orderId);if(!order)return;
+  const raw=document.getElementById('input-edit-field').value.trim();
+
+  if(editingField.field==='product'){
+    if(!raw){toast('请输入商品名称');return;}
+    order.product=raw;
+  }else{
+    const n=parseInt(raw,10);
+    if(!n||n<1){toast('请输入有效数量');return;}
+    if(order.purchased>n)order.purchased=n; // 已采购不能超过新数量
+    order.qty=n;
+  }
+  save(ORDERS_KEY,orders);renderAll();closeEditFieldModal();
+  toast(editingField.field==='product'?'商品名已更新':'数量已更新');
+}
+
+// ═══════════════════════════════════════════════════════
+// 售价修改 Modal
+// ═══════════════════════════════════════════════════════
 function openPriceModal(orderId){
   const order=orders.find(o=>o.id===orderId);if(!order)return;
   editingOrderId=orderId;
@@ -992,6 +977,9 @@ function confirmPriceEdit(){
   closePriceModal();
 }
 
+// ═══════════════════════════════════════════════════════
+// Tab
+// ═══════════════════════════════════════════════════════
 function switchTab(tab){
   document.querySelectorAll('.tab').forEach((t,i)=>{t.classList.toggle('active',(tab==='customers'&&i===0)||(tab==='products'&&i===1));});
   document.getElementById('tab-customers').classList.toggle('active',tab==='customers');
@@ -1004,7 +992,6 @@ function switchTab(tab){
 function openAddModal(){document.getElementById('modal-add').classList.add('show');showAddStep(1);document.getElementById('input-raw-order').value='';setTimeout(()=>document.getElementById('input-raw-order').focus(),300);}
 function closeAddModal(){document.getElementById('modal-add').classList.remove('show');}
 function showAddStep(n){document.getElementById('add-step1').classList.toggle('active',n===1);document.getElementById('add-step2').classList.toggle('active',n===2);}
-
 function parseAndReview(){
   const raw=document.getElementById('input-raw-order').value;
   const p=parseOrderInput(raw);
@@ -1020,7 +1007,6 @@ function parseAndReview(){
   showAddStep(2);setTimeout(()=>document.getElementById('input-confirm-customer').focus(),200);
 }
 function backToStep1(){showAddStep(1);document.getElementById('input-raw-order').focus();}
-
 function confirmAddOrder(){
   const customer=document.getElementById('input-confirm-customer').value.trim();
   const product=document.getElementById('input-confirm-product').value.trim();
@@ -1030,8 +1016,8 @@ function confirmAddOrder(){
   const location=document.getElementById('input-confirm-location').value.trim();
   if(!customer){toast('请输入客户名称');return;}if(!product){toast('请输入商品名称');return;}if(!qty||qty<1){toast('请输入有效数量');return;}
   updateProductMeta(product,location,0);
-  const newOrder={id:genId(),customer,product,qty,sellingPrice:isNaN(sellingPrice)?0:sellingPrice,purchased:0,location};
-  orders.push(newOrder);save(ORDERS_KEY,orders);autoConsumeSystemStock(newOrder.id);renderAll();closeAddModal();
+  orders.push({id:genId(),customer,product,qty,sellingPrice:isNaN(sellingPrice)?0:sellingPrice,purchased:0,isPaid:false,location});
+  save(ORDERS_KEY,orders);autoConsumeSystemStock(orders[orders.length-1].id);renderAll();closeAddModal();
   toast('已添加：'+customer+' → '+product+' ×'+qty+(location?' @'+location:''));
 }
 
@@ -1041,23 +1027,18 @@ function confirmAddOrder(){
 function openStockModal(){document.getElementById('modal-stock').classList.add('show');showStockStep(1);document.getElementById('input-raw-stock').value='';setTimeout(()=>document.getElementById('input-raw-stock').focus(),300);}
 function closeStockModal(){document.getElementById('modal-stock').classList.remove('show');pendingAlloc=null;}
 function showStockStep(n){document.getElementById('stock-step1').classList.toggle('active',n===1);document.getElementById('stock-step2').classList.toggle('active',n===2);}
-
 function previewAllocation(){
-  const raw=document.getElementById('input-raw-stock').value;
-  const p=parseStockInput(raw);
+  const raw=document.getElementById('input-raw-stock').value;const p=parseStockInput(raw);
   if(!p){toast('格式错误！请输入：商品 数量 [单价] [地点]');return;}
-  const result=allocatePurchase(p.product,p.qty,p.unitPrice,p.location);
-  pendingAlloc=result;
+  const result=allocatePurchase(p.product,p.qty,p.unitPrice,p.location);pendingAlloc=result;
   document.getElementById('stock-preview-title').textContent='「'+result.product+'」入库 '+result.totalQty+' 个'+(result.unitPrice>0?'（单价 ¥'+result.unitPrice.toFixed(2)+'）':'')+(result.location?' @'+result.location:'');
-  const listEl=document.getElementById('alloc-preview-list');
-  const btnConfirm=document.getElementById('btn-confirm-alloc');
+  const listEl=document.getElementById('alloc-preview-list'),btnConfirm=document.getElementById('btn-confirm-alloc');
   if(result.allocated.length===0&&result.remaining===result.totalQty){
     listEl.innerHTML='<div style="text-align:center;color:var(--secondary);padding:12px;font-size:14px">该商品当前无客户缺口<br>全部 <b>'+result.totalQty+'</b> 个将存入 <b>【系统库存】</b></div>';
     document.getElementById('alloc-summary-msg').innerHTML='<span style="color:var(--orange)">📦 全部转入系统库存，待后续分配</span>';
     document.getElementById('alloc-summary-msg').className='alloc-summary excess';btnConfirm.style.display='';
   }else{
-    let listHtml='';
-    for(const a of result.allocated){listHtml+='<div class="alloc-item"><span class="cust">👤 '+esc(a.customer)+'</span><span>缺口 '+a.gapBefore+' → <span class="val">+'+a.allocated+'</span>（剩 '+a.gapAfter+'）</span></div>';}
+    let listHtml='';for(const a of result.allocated){listHtml+='<div class="alloc-item"><span class="cust">👤 '+esc(a.customer)+'</span><span>缺口 '+a.gapBefore+' → <span class="val">+'+a.allocated+'</span>（剩 '+a.gapAfter+'）</span></div>';}
     listEl.innerHTML=listHtml||'<div style="text-align:center;color:var(--secondary);padding:12px">无待分配客户</div>';
     const summaryEl=document.getElementById('alloc-summary-msg');
     if(result.remaining>0){summaryEl.innerHTML='⚠️ 客户缺口已补完，剩余 <b>'+result.remaining+'</b> 个将存入【系统库存】';summaryEl.className='alloc-summary excess';}
@@ -1067,12 +1048,11 @@ function previewAllocation(){
   showStockStep(2);
 }
 function backToStockStep1(){pendingAlloc=null;showStockStep(1);document.getElementById('input-raw-stock').focus();}
-
 function confirmAllocation(){
   if(!pendingAlloc)return;
   const{allocated,remaining,product,totalQty,unitPrice,location}=pendingAlloc;
-  for(const a of allocated){const target=orders.find(o=>o.customer===a.customer&&o.product===product&&o.purchased<o.qty);if(target)target.purchased+=a.allocated;}
-  if(remaining>0){orders.push({id:genId(),customer:SYS_CUSTOMER,product,qty:remaining,sellingPrice:0,purchased:remaining,location});}
+  for(const a of allocated){const t=orders.find(o=>o.customer===a.customer&&o.product===product&&o.purchased<o.qty);if(t)t.purchased+=a.allocated;}
+  if(remaining>0){orders.push({id:genId(),customer:SYS_CUSTOMER,product,qty:remaining,sellingPrice:0,purchased:remaining,isPaid:false,location});}
   const cost=unitPrice>0?totalQty*unitPrice:0;
   purchaseLogs.push({id:genId(),product,qty:totalQty,unitPrice,totalCost:cost,location,timestamp:Date.now()});
   save(LOGS_KEY,purchaseLogs);updateProductMeta(product,location,unitPrice);save(ORDERS_KEY,orders);
@@ -1084,12 +1064,13 @@ function confirmAllocation(){
 // 全局事件
 // ═══════════════════════════════════════════════════════
 document.querySelectorAll('.modal-overlay').forEach(ov=>{
-  ov.addEventListener('click',function(e){if(e.target===this){this.classList.remove('show');pendingAlloc=null;editingOrderId=null;}});
+  ov.addEventListener('click',function(e){if(e.target===this){this.classList.remove('show');pendingAlloc=null;editingOrderId=null;editingField=null;}});
 });
 document.getElementById('input-raw-order').addEventListener('keydown',function(e){if(e.key==='Enter')parseAndReview();});
 document.getElementById('input-raw-stock').addEventListener('keydown',function(e){if(e.key==='Enter')previewAllocation();});
 document.getElementById('input-confirm-qty').addEventListener('keydown',function(e){if(e.key==='Enter')confirmAddOrder();});
 document.getElementById('input-edit-price').addEventListener('keydown',function(e){if(e.key==='Enter')confirmPriceEdit();});
+document.getElementById('input-edit-field').addEventListener('keydown',function(e){if(e.key==='Enter')confirmEditField();});
 
 // ═══════════════════════════════════════════════════════
 renderAll();
