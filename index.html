@@ -6,7 +6,11 @@
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="default">
 <meta name="apple-mobile-web-app-title" content="双表记账">
+<meta name="theme-color" content="#f2f2f7">
+<meta name="mobile-web-app-capable" content="yes">
 <link rel="apple-touch-icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' width='180' height='180'><rect width='180' height='180' rx='36' fill='%23007AFF'/><text x='90' y='118' font-size='100' text-anchor='middle' fill='white'>📒</text></svg>">
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' width='32' height='32'><rect width='32' height='32' rx='6' fill='%23007AFF'/><text x='16' y='23' font-size='18' text-anchor='middle' fill='white'>📒</text></svg>">
+<link rel="manifest" id="manifest-link">
 <title>双表记账</title>
 <style>
 *,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
@@ -1071,6 +1075,52 @@ document.getElementById('input-raw-stock').addEventListener('keydown',function(e
 document.getElementById('input-confirm-qty').addEventListener('keydown',function(e){if(e.key==='Enter')confirmAddOrder();});
 document.getElementById('input-edit-price').addEventListener('keydown',function(e){if(e.key==='Enter')confirmPriceEdit();});
 document.getElementById('input-edit-field').addEventListener('keydown',function(e){if(e.key==='Enter')confirmEditField();});
+
+// ═══════════════════════════════════════════════════════
+// PWA 离线支持：Manifest + Cache API + SW（带降级）
+// ═══════════════════════════════════════════════════════
+(function initPWA(){
+  // 1. 注入 Web App Manifest（Blob URL）
+  const manifest = {
+    name: '双表记账',
+    short_name: '双表记账',
+    description: '双表记账模式 — 客户订单 + 商品汇总',
+    start_url: location.href.split('?')[0],
+    display: 'standalone',
+    orientation: 'portrait',
+    background_color: '#f2f2f7',
+    theme_color: '#f2f2f7',
+    icons: [{
+      src: 'data:image/svg+xml,' + encodeURIComponent('<svg xmlns="http://www.w3.org/2000/svg" width="192" height="192"><rect width="192" height="192" rx="38" fill="#007AFF"/><text x="96" y="126" font-size="108" text-anchor="middle" fill="white">📒</text></svg>'),
+      sizes: '192x192', type: 'image/svg+xml', purpose: 'any maskable'
+    }]
+  };
+  const blob = new Blob([JSON.stringify(manifest)], {type:'application/json'});
+  document.getElementById('manifest-link').href = URL.createObjectURL(blob);
+
+  // 2. Cache API —— 缓存当前页面，断网时瞬间秒开
+  if('caches' in window){
+    caches.open('shuangbiao-v1').then(function(cache){
+      cache.add(location.href).catch(function(){});
+    });
+  }
+
+  // 3. 尝试注册 Service Worker
+  //    iOS Safari 添加到主屏幕后会独立缓存 App 资源，无需 SW 即可离线秒开；
+  //    Android Chrome 需 SW 支持；如服务器不存在 sw.js 则静默降级。
+  if('serviceWorker' in navigator){
+    // 尝试多种 SW 路径以兼容不同部署方式
+    var swPaths = ['./sw.js', '/sw.js', location.pathname.replace(/[^/]+$/,'')+'sw.js'];
+    (function tryRegister(i){
+      if(i >= swPaths.length) return;
+      navigator.serviceWorker.register(swPaths[i], {scope:'./'}).then(function(reg){
+        console.log('SW registered:', swPaths[i]);
+      }).catch(function(){
+        tryRegister(i+1);
+      });
+    })(0);
+  }
+})();
 
 // ═══════════════════════════════════════════════════════
 renderAll();
