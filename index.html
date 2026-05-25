@@ -51,6 +51,45 @@ body{
 }
 .tab.active{background:var(--card-bg);color:var(--text);box-shadow:0 1px 3px rgba(0,0,0,0.08)}
 
+/* Icon buttons (search + menu) */
+.btn-icon{
+  flex-shrink:0;width:40px;height:40px;
+  display:flex;align-items:center;justify-content:center;
+  background:var(--card-bg);border:1px solid var(--separator);
+  border-radius:10px;font-size:20px;line-height:1;cursor:pointer;
+  transition:all 0.15s;-webkit-tap-highlight-color:transparent;padding:0;
+}
+.btn-icon:active{transform:scale(0.9);background:#f0f0f5}
+
+/* Search bar — slides down below tabs */
+.search-wrap{overflow:hidden;max-height:0;transition:max-height 0.25s ease,margin 0.25s ease}
+.search-wrap.open{max-height:56px;margin:8px 16px 10px}
+.search-inner{display:flex;gap:8px;align-items:center}
+.search-inner input{
+  flex:1;padding:10px 14px;font-size:16px;
+  border:1px solid var(--separator);border-radius:10px;
+  background:#f9f9fb;outline:none;transition:border 0.2s,box-shadow 0.2s;
+  -webkit-appearance:none;
+}
+.search-inner input:focus{border-color:var(--blue);box-shadow:0 0 0 3px rgba(0,122,255,0.15);background:#fff}
+.search-clear{
+  flex-shrink:0;width:36px;height:36px;border-radius:18px;
+  border:none;background:#f2f2f7;color:var(--secondary);
+  font-size:16px;font-weight:600;cursor:pointer;
+  display:flex;align-items:center;justify-content:center;
+}
+.search-clear:active{background:#e5e5ea}
+
+/* Flash highlight for customer search */
+@keyframes flashHighlight{
+  0%,100%{box-shadow:0 1px 4px rgba(0,0,0,0.04)}
+  15%{box-shadow:0 0 0 4px rgba(0,122,255,0.45),0 2px 8px rgba(0,0,0,0.08)}
+  30%{box-shadow:0 1px 4px rgba(0,0,0,0.04)}
+  50%{box-shadow:0 0 0 4px rgba(0,122,255,0.45),0 2px 8px rgba(0,0,0,0.08)}
+  65%{box-shadow:0 1px 4px rgba(0,0,0,0.04)}
+}
+.flash-highlight{animation:flashHighlight 1.2s ease-in-out}
+
 /* Menu */
 .menu-wrapper{position:relative;flex-shrink:0}
 .btn-menu{
@@ -61,6 +100,14 @@ body{
   transition:all 0.15s;-webkit-tap-highlight-color:transparent;padding:0;
 }
 .btn-menu:active{transform:scale(0.9);background:#f0f0f5}
+.btn-search{
+  flex-shrink:0;width:40px;height:40px;
+  display:flex;align-items:center;justify-content:center;
+  background:var(--card-bg);border:1px solid var(--separator);
+  border-radius:10px;font-size:20px;line-height:1;cursor:pointer;
+  transition:all 0.15s;-webkit-tap-highlight-color:transparent;padding:0;
+}
+.btn-search:active{transform:scale(0.9);background:#f0f0f5}
 
 .dropdown{
   position:absolute;top:calc(100% + 6px);right:0;
@@ -336,7 +383,8 @@ tr.sys-stock td{color:#856404}
    🖨️  @media print
    ══════════════════════════════════════════════════════ */
 @media print{
-  .top-bar,.menu-wrapper,.dropdown,.btn-menu,.bottom-bar,.finance-panel,
+  .top-bar,.menu-wrapper,.dropdown,.btn-menu,.btn-search,.search-wrap,.search-clear,
+  .bottom-bar,.finance-panel,
   .modal-overlay,.toast,.btn-sm,.btn-del,.btn-plus1,.cell-actions,
   .location-toggle .arrow,
   .paid-check{
@@ -446,6 +494,7 @@ tr.sys-stock td{color:#856404}
       <button class="tab active" onclick="switchTab('customers')">👤 客户订单</button>
       <button class="tab" onclick="switchTab('products')">📦 商品汇总</button>
     </div>
+    <button class="btn-search" id="btnSearch" onclick="event.stopPropagation();toggleSearch()" title="搜索">🔍</button>
     <div class="menu-wrapper" id="menuWrapper">
       <button class="btn-menu" onclick="event.stopPropagation();toggleMenu()" title="功能菜单">⚙️</button>
       <div class="dropdown" id="dropdownMenu">
@@ -453,6 +502,13 @@ tr.sys-stock td{color:#856404}
         <div class="dropdown-item" onclick="openExportModal()"><span class="d-icon">📥</span> 导出备份数据</div>
         <div class="dropdown-item" onclick="openImportModal()"><span class="d-icon">📤</span> 导入备份数据</div>
       </div>
+    </div>
+  </div>
+  <!-- Search bar -->
+  <div class="search-wrap" id="searchWrap">
+    <div class="search-inner">
+      <input type="search" id="searchInput" placeholder="搜索…" autocomplete="off" enterkeyhint="search">
+      <button class="search-clear" onclick="clearSearch()" title="清除">✕</button>
     </div>
   </div>
 </div>
@@ -614,11 +670,32 @@ let orders=load(ORDERS_KEY);
 let purchaseLogs=load(LOGS_KEY);
 let productMeta=load(META_KEY);
 if(!productMeta||typeof productMeta!=='object')productMeta={};
+
+// ── v5 → v6 数据迁移（防止键名升级导致数据"消失"）──
+if(orders.length===0&&purchaseLogs.length===0&&Object.keys(productMeta).length===0){
+  const v5o=load('dual_table_orders_v5'),v5l=load('dual_table_purchase_logs_v5'),v5m=load('dual_table_product_meta_v5');
+  if(v5o.length>0||v5l.length>0||(v5m&&Object.keys(v5m).length>0)){
+    orders=v5o;purchaseLogs=v5l;productMeta=v5m||{};
+    save(ORDERS_KEY,orders);save(LOGS_KEY,purchaseLogs);save(META_KEY,productMeta);
+  }
+}
+
+// ── 自愈：从 purchaseLogs 重建 productMeta 中的 lastPrice ──
+// 解决"入库日志已存但 productMeta 因 price>0 拦截或异常丢失"导致刷新后单价变 - 的问题
+for(const log of purchaseLogs){
+  if(!log.unitPrice||log.unitPrice<=0)continue;
+  if(!productMeta[log.product])productMeta[log.product]={lastLocation:'',lastPrice:0};
+  // 取最新一次有价入库的单价
+  if(log.unitPrice>0)productMeta[log.product].lastPrice=log.unitPrice;
+  if(log.location&&log.location.trim())productMeta[log.product].lastLocation=log.location.trim();
+}
+save(META_KEY,productMeta);
+
 let pendingAlloc=null;
 let editingOrderId=null;
 let editingField=null;  // { orderId, field:'product'|'qty' }
 
-// 迁移旧数据
+// 迁移旧字段
 for(const o of orders){
   if(o.sellingPrice===undefined)o.sellingPrice=0;
   if(o.isPaid===undefined)o.isPaid=false;
@@ -649,6 +726,40 @@ function doPrint(){closeMenu();setTimeout(()=>window.print(),150);}
 document.addEventListener('click',function(e){const w=document.getElementById('menuWrapper');if(!w.contains(e.target))closeMenu();});
 
 // ═══════════════════════════════════════════════════════
+// 搜索（按标签页分工）
+// ═══════════════════════════════════════════════════════
+function toggleSearch(){
+  const wrap=document.getElementById('searchWrap'),input=document.getElementById('searchInput');
+  wrap.classList.toggle('open');
+  if(wrap.classList.contains('open')){input.value='';input.focus();closeMenu();}
+  else clearSearch();
+}
+function clearSearch(){
+  document.getElementById('searchInput').value='';
+  document.getElementById('searchWrap').classList.remove('open');
+  document.querySelectorAll('#tab-products tr').forEach(r=>r.style.display='');
+  document.querySelectorAll('.flash-highlight').forEach(c=>c.classList.remove('flash-highlight'));
+}
+function doSearch(){
+  const q=document.getElementById('searchInput').value.trim();
+  if(!q)return;
+  if(document.getElementById('tab-customers').classList.contains('active'))searchCustomers(q);
+  else if(document.getElementById('tab-products').classList.contains('active'))filterProducts(q);
+}
+function searchCustomers(query){
+  document.querySelectorAll('.flash-highlight').forEach(c=>c.classList.remove('flash-highlight'));
+  const cards=document.querySelectorAll('#tab-customers .card');let found=null;
+  for(const c of cards){const h=c.querySelector('.card-header');if(h&&h.textContent.toLowerCase().includes(query.toLowerCase())){found=c;break;}}
+  if(found){found.scrollIntoView({behavior:'smooth',block:'start'});found.classList.add('flash-highlight');setTimeout(()=>found.classList.remove('flash-highlight'),1300);}
+  else toast('未找到匹配的客户');
+}
+function filterProducts(query){
+  const q=query.toLowerCase();let mc=0;
+  document.querySelectorAll('#tab-products tbody tr').forEach(r=>{const td=r.querySelector('td:first-child');if(td&&td.textContent.toLowerCase().includes(q)){r.style.display='';mc++;}else r.style.display='none';});
+  if(mc===0&&q)toast('未找到匹配的商品');
+}
+
+// ═══════════════════════════════════════════════════════
 // 导出 / 导入备份
 // ═══════════════════════════════════════════════════════
 function openExportModal(){
@@ -669,7 +780,7 @@ function fallbackCopy(text){
   try{document.execCommand('copy');toast('✅ 备份数据已复制到剪切板')}catch(e){toast('复制失败，请手动全选复制')}
   document.body.removeChild(ta);
 }
-function openImportModal(){closeMenu();document.getElementById('input-import-json').value='';document.getElementById('modal-import').classList.add('show');setTimeout(()=>document.getElementById('input-import-json').focus(),300);}
+function openImportModal(){closeMenu();document.getElementById('input-import-json').value='';document.getElementById('modal-import').classList.add('show');requestAnimationFrame(()=>{requestAnimationFrame(()=>{const i=document.getElementById('input-import-json');i.focus();i.click();});});}
 function closeImportModal(){document.getElementById('modal-import').classList.remove('show');}
 function confirmImport(){
   const raw=document.getElementById('input-import-json').value.trim();
@@ -741,7 +852,16 @@ function allocatePurchase(product,qty,unitPrice,location){
   }
   return{allocated,remaining,product,totalQty:qty,unitPrice,location};
 }
-function getLatestPrice(product){const m=getProductMeta(product);return m.lastPrice||0;}
+// 获取商品最新采购单价（productMeta 主源 + purchaseLogs 兜底）
+function getLatestPrice(product){
+  const m=getProductMeta(product);
+  if(m.lastPrice>0)return m.lastPrice;
+  // 兜底：从 purchaseLogs 中找到该商品最后一次有价入库
+  for(let i=purchaseLogs.length-1;i>=0;i--){
+    if(purchaseLogs[i].product===product&&purchaseLogs[i].unitPrice>0)return purchaseLogs[i].unitPrice;
+  }
+  return 0;
+}
 
 // ═══════════════════════════════════════════════════════
 // 商品汇总（按地点分组）
@@ -937,7 +1057,7 @@ function openEditFieldModal(orderId,field){
     input.min='1';input.step='1';
   }
   document.getElementById('modal-edit-field').classList.add('show');
-  setTimeout(()=>{input.focus();input.select();},300);
+  requestAnimationFrame(()=>{requestAnimationFrame(()=>{input.focus();input.select();});});
 }
 function closeEditFieldModal(){document.getElementById('modal-edit-field').classList.remove('show');editingField=null;}
 function confirmEditField(){
@@ -968,7 +1088,7 @@ function openPriceModal(orderId){
   document.getElementById('price-modal-sub').textContent=order.customer+' 的 '+order.product;
   document.getElementById('input-edit-price').value=order.sellingPrice||'';
   document.getElementById('modal-price').classList.add('show');
-  setTimeout(()=>{document.getElementById('input-edit-price').focus();document.getElementById('input-edit-price').select();},300);
+  requestAnimationFrame(()=>{requestAnimationFrame(()=>{const i=document.getElementById('input-edit-price');i.focus();i.select();});});
 }
 function closePriceModal(){document.getElementById('modal-price').classList.remove('show');editingOrderId=null;}
 function confirmPriceEdit(){
@@ -988,12 +1108,13 @@ function switchTab(tab){
   document.querySelectorAll('.tab').forEach((t,i)=>{t.classList.toggle('active',(tab==='customers'&&i===0)||(tab==='products'&&i===1));});
   document.getElementById('tab-customers').classList.toggle('active',tab==='customers');
   document.getElementById('tab-products').classList.toggle('active',tab==='products');
+  clearSearch(); // 切换 Tab 时重置搜索
 }
 
 // ═══════════════════════════════════════════════════════
 // 添加订单 Modal
 // ═══════════════════════════════════════════════════════
-function openAddModal(){document.getElementById('modal-add').classList.add('show');showAddStep(1);document.getElementById('input-raw-order').value='';setTimeout(()=>document.getElementById('input-raw-order').focus(),300);}
+function openAddModal(){document.getElementById('modal-add').classList.add('show');showAddStep(1);document.getElementById('input-raw-order').value='';requestAnimationFrame(()=>{requestAnimationFrame(()=>{const i=document.getElementById('input-raw-order');i.focus();i.click();});});}
 function closeAddModal(){document.getElementById('modal-add').classList.remove('show');}
 function showAddStep(n){document.getElementById('add-step1').classList.toggle('active',n===1);document.getElementById('add-step2').classList.toggle('active',n===2);}
 function parseAndReview(){
@@ -1008,7 +1129,7 @@ function parseAndReview(){
   document.getElementById('input-confirm-qty').value=p.qty;
   document.getElementById('input-confirm-price').value=p.sellingPrice||'';
   document.getElementById('input-confirm-location').value=finalLocation;
-  showAddStep(2);setTimeout(()=>document.getElementById('input-confirm-customer').focus(),200);
+  showAddStep(2);requestAnimationFrame(()=>{requestAnimationFrame(()=>{const i=document.getElementById('input-confirm-customer');i.focus();i.click();});});
 }
 function backToStep1(){showAddStep(1);document.getElementById('input-raw-order').focus();}
 function confirmAddOrder(){
@@ -1028,7 +1149,7 @@ function confirmAddOrder(){
 // ═══════════════════════════════════════════════════════
 // 采购入库 Modal
 // ═══════════════════════════════════════════════════════
-function openStockModal(){document.getElementById('modal-stock').classList.add('show');showStockStep(1);document.getElementById('input-raw-stock').value='';setTimeout(()=>document.getElementById('input-raw-stock').focus(),300);}
+function openStockModal(){document.getElementById('modal-stock').classList.add('show');showStockStep(1);document.getElementById('input-raw-stock').value='';requestAnimationFrame(()=>{requestAnimationFrame(()=>{const i=document.getElementById('input-raw-stock');i.focus();i.click();});});}
 function closeStockModal(){document.getElementById('modal-stock').classList.remove('show');pendingAlloc=null;}
 function showStockStep(n){document.getElementById('stock-step1').classList.toggle('active',n===1);document.getElementById('stock-step2').classList.toggle('active',n===2);}
 function previewAllocation(){
@@ -1075,6 +1196,12 @@ document.getElementById('input-raw-stock').addEventListener('keydown',function(e
 document.getElementById('input-confirm-qty').addEventListener('keydown',function(e){if(e.key==='Enter')confirmAddOrder();});
 document.getElementById('input-edit-price').addEventListener('keydown',function(e){if(e.key==='Enter')confirmPriceEdit();});
 document.getElementById('input-edit-field').addEventListener('keydown',function(e){if(e.key==='Enter')confirmEditField();});
+// 搜索事件：Enter 执行搜索，input 仅在商品汇总页实时过滤
+document.getElementById('searchInput').addEventListener('keydown',function(e){if(e.key==='Enter'){e.preventDefault();doSearch();}});
+document.getElementById('searchInput').addEventListener('input',function(){
+  if(!document.getElementById('tab-products').classList.contains('active'))return;
+  const q=this.value.trim();if(q)filterProducts(q);else document.querySelectorAll('#tab-products tbody tr').forEach(r=>r.style.display='');
+});
 
 // ═══════════════════════════════════════════════════════
 // PWA 离线支持：Manifest + Cache API + SW（带降级）
