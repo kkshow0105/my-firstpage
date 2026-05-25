@@ -501,6 +501,7 @@ tr.sys-stock td{color:#856404}
         <div class="dropdown-item" onclick="doPrint()"><span class="d-icon">🖨️</span> 一键打印清单</div>
         <div class="dropdown-item" onclick="openExportModal()"><span class="d-icon">📥</span> 导出备份数据</div>
         <div class="dropdown-item" onclick="openImportModal()"><span class="d-icon">📤</span> 导入备份数据</div>
+        <div class="dropdown-item" onclick="clearAllData()" style="color:var(--red)"><span class="d-icon">🗑️</span> 清空所有数据</div>
       </div>
     </div>
   </div>
@@ -812,6 +813,14 @@ function confirmImport(){
   orders=data.orders;purchaseLogs=data.purchaseLogs;productMeta=data.productMeta;
   renderAll();closeImportModal();toast('✅ 备份数据已成功导入并加载');
 }
+function clearAllData(){
+  closeMenu();
+  if(!confirm('⚠️ 确定要清空所有数据吗？\n\n此操作将删除全部订单、采购记录和商品信息，且无法撤销。\n\n建议先导出备份数据。'))return;
+  if(!confirm('再次确认：确实要清空所有数据？'))return;
+  orders=[];purchaseLogs=[];productMeta={};
+  save(ORDERS_KEY,orders);save(LOGS_KEY,purchaseLogs);save(META_KEY,productMeta);
+  renderAll();toast('✅ 数据已清空，可开始新行程记账');
+}
 
 // ═══════════════════════════════════════════════════════
 // NLP 解析
@@ -998,8 +1007,9 @@ function renderProducts(){
     if(loc.isStockSection)continue; // 系统库存不计入待采购统计
     for(const p of loc.products){totalKinds++;const g=p.total-p.purchased;if(g>0){urgentKinds++;totalGap+=g;}}
   }
+  const realSummary=summary.filter(l=>!l.isStockSection);
   chipsEl.innerHTML=
-    '<div class="summary-chip"><div class="num">'+summary.length+'</div><div class="lbl">采购地点</div></div>'+
+    '<div class="summary-chip"><div class="num">'+realSummary.length+'</div><div class="lbl">采购地点</div></div>'+
     '<div class="summary-chip"><div class="num">'+totalKinds+'</div><div class="lbl">商品种类</div></div>'+
     '<div class="summary-chip warn"><div class="num">'+urgentKinds+'</div><div class="lbl">待采购</div></div>'+
     '<div class="summary-chip warn"><div class="num">'+totalGap+'</div><div class="lbl">总缺口</div></div>';
@@ -1054,10 +1064,12 @@ function restoreExpandedLocations(expanded){
   document.querySelectorAll('.location-body').forEach(b=>{const loc=b.getAttribute('data-location');if(loc&&expanded.has(loc)){b.classList.add('open');const t=b.previousElementSibling;if(t){const a=t.querySelector('.arrow');if(a)a.classList.add('open');}}});
 }
 function renderFinance(){
-  const productPurchased={};
-  for(const o of orders){if(!productPurchased[o.product])productPurchased[o.product]=0;productPurchased[o.product]+=o.purchased;}
+  // 累计采购花费 = Σ purchaseLogs 实际花费（不随订单删除变化）
   let totalSpend=0;
-  for(const[product,purchased]of Object.entries(productPurchased)){const price=getLatestPrice(product);if(price>0)totalSpend+=purchased*price;}
+  for(const log of purchaseLogs){
+    if(log.totalCost>0)totalSpend+=log.totalCost;
+    else if(log.unitPrice>0)totalSpend+=log.qty*log.unitPrice;
+  }
   document.getElementById('finance-total').textContent='¥'+totalSpend.toFixed(2);
   document.getElementById('finance-orders').textContent=purchaseLogs.length+' 笔入库记录';
 }
@@ -1080,15 +1092,27 @@ function quickStockIn(product){
   save(ORDERS_KEY,orders);save(LOGS_KEY,purchaseLogs);renderAll();
   toast('✅ '+product+' +1 已入库'+(cost>0?'（¥'+cost.toFixed(2)+'）':''));
 }
-// 删除订单：仅移除 orders 中的销售记录，purchaseLogs（进货流水）保持不可变
-// 删除后该商品的已售数量自动减少，库存通过 getCurrentStock() 自然弹回
-// 同时清理已失效的系统库存 order 行（因为库存现在由 purchaseLogs - allocated 计算，系统库存 order 行不再需要）
+// 删除订单：移除该客户订单，将其已分配的采购量重新分配给其他有缺口的同商品客户
 function deleteOrder(id){
   if(!confirm('确定删除？'))return;
+  const deleted=orders.find(o=>o.id===id);
+  if(!deleted){return;}
+  const product=deleted.product;
+  const releasedPurchased=deleted.purchased; // 删除后会释放的"已采购"名额
   orders=orders.filter(o=>o.id!==id);
-  // 清理所有系统库存 order 行（系统库存现在通过 getCurrentStock() 计算，不依赖这些行）
-  orders=orders.filter(o=>o.customer!==SYS_CUSTOMER);
-  save(ORDERS_KEY,orders);renderAll();toast('已删除');
+  orders=orders.filter(o=>o.customer!==SYS_CUSTOMER); // 清理旧版遗留系统库存行
+  // 将释放的采购量重新分配给其他有缺口的同商品客户（按现有顺序）
+  let remaining=releasedPurchased;
+  for(const o of orders){
+    if(remaining<=0)break;
+    if(o.product!==product||o.customer===SYS_CUSTOMER)continue;
+    const gap=o.qty-o.purchased;
+    if(gap<=0)continue;
+    const give=Math.min(gap,remaining);
+    o.purchased+=give;remaining-=give;
+  }
+  save(ORDERS_KEY,orders);renderAll();
+  toast('已删除'+(releasedPurchased>0&&remaining<releasedPurchased?'，已将采购量重新分配给其他客户':''));
 }
 function togglePaid(id){
   const order=orders.find(o=>o.id===id);
@@ -1245,7 +1269,11 @@ function backToStockStep1(){pendingAlloc=null;showStockStep(1);document.getEleme
 function confirmAllocation(){
   if(!pendingAlloc)return;
   const{allocated,remaining,product,totalQty,unitPrice,location}=pendingAlloc;
-  for(const a of allocated){const t=orders.find(o=>o.customer!==SYS_CUSTOMER&&o.product===product&&o.purchased<o.qty);if(t)t.purchased+=a.allocated;}
+  for(const a of allocated){
+    // 按客户名+商品名找第一条有缺口的订单（与 allocatePurchase 保持一致）
+    const t=orders.find(o=>o.customer===a.customer&&o.product===product&&o.customer!==SYS_CUSTOMER&&o.purchased<o.qty);
+    if(t)t.purchased+=a.allocated;
+  }
   // 不再创建系统库存 order 行；剩余库存通过 getCurrentStock() = purchaseLogs - allocated 自动计算
   const cost=unitPrice>0?totalQty*unitPrice:0;
   purchaseLogs.push({id:genId(),product,qty:totalQty,unitPrice,totalCost:cost,location,timestamp:Date.now()});
