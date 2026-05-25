@@ -694,6 +694,7 @@ save(META_KEY,productMeta);
 let pendingAlloc=null;
 let editingOrderId=null;
 let editingField=null;  // { orderId, field:'product'|'qty' }
+let isComposing=false;  // IME 组合输入标志（拼音/五笔防抖）
 
 // 迁移旧字段
 for(const o of orders){
@@ -856,11 +857,24 @@ function allocatePurchase(product,qty,unitPrice,location){
 function getLatestPrice(product){
   const m=getProductMeta(product);
   if(m.lastPrice>0)return m.lastPrice;
-  // 兜底：从 purchaseLogs 中找到该商品最后一次有价入库
   for(let i=purchaseLogs.length-1;i>=0;i--){
     if(purchaseLogs[i].product===product&&purchaseLogs[i].unitPrice>0)return purchaseLogs[i].unitPrice;
   }
   return 0;
+}
+
+// 库存计算（进销分离）：
+// purchaseLogs = 不可变的进货流水（只增不删）
+// orders[].purchased = 已分配给客户的出货数量
+// 当前库存 = ΣpurchaseLogs.qty - Σorders.purchased（排除系统库存自身）
+function getTotalPurchased(product){
+  return purchaseLogs.filter(l=>l.product===product).reduce((s,l)=>s+l.qty,0);
+}
+function getTotalAllocated(product){
+  return orders.filter(o=>o.customer!==SYS_CUSTOMER&&o.product===product).reduce((s,o)=>s+o.purchased,0);
+}
+function getCurrentStock(product){
+  return getTotalPurchased(product)-getTotalAllocated(product);
 }
 
 // ═══════════════════════════════════════════════════════
@@ -1017,6 +1031,8 @@ function quickStockIn(product){
   save(ORDERS_KEY,orders);save(LOGS_KEY,purchaseLogs);renderAll();
   toast('✅ '+product+' +1 已入库'+(cost>0?'（¥'+cost.toFixed(2)+'）':''));
 }
+// 删除订单：仅移除 orders 中的销售记录，purchaseLogs（进货流水）保持不可变
+// 删除后该商品的已售数量自动减少，库存通过 getCurrentStock() 自然弹回
 function deleteOrder(id){
   if(!confirm('确定删除？'))return;
   orders=orders.filter(o=>o.id!==id);save(ORDERS_KEY,orders);renderAll();toast('已删除');
@@ -1196,9 +1212,17 @@ document.getElementById('input-raw-stock').addEventListener('keydown',function(e
 document.getElementById('input-confirm-qty').addEventListener('keydown',function(e){if(e.key==='Enter')confirmAddOrder();});
 document.getElementById('input-edit-price').addEventListener('keydown',function(e){if(e.key==='Enter')confirmPriceEdit();});
 document.getElementById('input-edit-field').addEventListener('keydown',function(e){if(e.key==='Enter')confirmEditField();});
-// 搜索事件：Enter 执行搜索，input 仅在商品汇总页实时过滤
+// 搜索事件：IME 组合输入防抖 + Enter 搜索 + 实时过滤
+document.getElementById('searchInput').addEventListener('compositionstart',function(){isComposing=true;});
+document.getElementById('searchInput').addEventListener('compositionend',function(){
+  isComposing=false;
+  // 词语上屏瞬间立即触发过滤
+  if(!document.getElementById('tab-products').classList.contains('active'))return;
+  const q=this.value.trim();if(q)filterProducts(q);else document.querySelectorAll('#tab-products tbody tr').forEach(r=>r.style.display='');
+});
 document.getElementById('searchInput').addEventListener('keydown',function(e){if(e.key==='Enter'){e.preventDefault();doSearch();}});
 document.getElementById('searchInput').addEventListener('input',function(){
+  if(isComposing)return; // 正在拼拼音/五笔，拦截不搜索
   if(!document.getElementById('tab-products').classList.contains('active'))return;
   const q=this.value.trim();if(q)filterProducts(q);else document.querySelectorAll('#tab-products tbody tr').forEach(r=>r.style.display='');
 });
