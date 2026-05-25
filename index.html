@@ -599,9 +599,12 @@ function clearSearch(){
 function doSearch(){
   const q=document.getElementById('searchInput').value.trim();
   if(!q)return;
-  const activeTab=document.getElementById('tab-customers').classList.contains('active')?'customers':'products';
-  if(activeTab==='customers')searchCustomers(q);
-  else filterProducts(q);
+  // 严格判断当前激活的标签页
+  if(document.getElementById('tab-customers').classList.contains('active')){
+    searchCustomers(q);
+  }else if(document.getElementById('tab-products').classList.contains('active')){
+    filterProducts(q);
+  }
 }
 
 // 客户搜索：平滑滚动 + 高亮闪烁
@@ -650,7 +653,7 @@ function openExportModal(){closeMenu();const b={version:1,exportedAt:new Date().
 function closeExportModal(){document.getElementById('modal-export').classList.remove('show');}
 function copyBackup(){const t=document.getElementById('export-json-text').textContent;if(navigator.clipboard&&navigator.clipboard.writeText){navigator.clipboard.writeText(t).then(()=>toast('✅ 备份数据已复制到剪切板')).catch(()=>fallbackCopy(t));}else fallbackCopy(t);}
 function fallbackCopy(t){const ta=document.createElement('textarea');ta.value=t;ta.style.position='fixed';ta.style.left='-9999px';document.body.appendChild(ta);ta.select();try{document.execCommand('copy');toast('✅ 备份数据已复制到剪切板')}catch(e){toast('复制失败，请手动全选复制')}document.body.removeChild(ta);}
-function openImportModal(){closeMenu();document.getElementById('input-import-json').value='';document.getElementById('modal-import').classList.add('show');setTimeout(()=>document.getElementById('input-import-json').focus(),300);}
+function openImportModal(){closeMenu();document.getElementById('input-import-json').value='';document.getElementById('modal-import').classList.add('show');requestAnimationFrame(()=>{requestAnimationFrame(()=>{const inp=document.getElementById('input-import-json');inp.focus();inp.click();});});}
 function closeImportModal(){document.getElementById('modal-import').classList.remove('show');}
 function confirmImport(){
   const raw=document.getElementById('input-import-json').value.trim();if(!raw){toast('请先粘贴备份数据');return;}
@@ -795,11 +798,11 @@ function togglePaid(id){const o=orders.find(o=>o.id===id);if(!o)return;o.isPaid=
 // ═══════════════════════════════════════════════════════
 // 编辑 Modal
 // ═══════════════════════════════════════════════════════
-function openEditFieldModal(oid,fld){const o=orders.find(o=>o.id===oid);if(!o)return;editingField={orderId:oid,field:fld};const ti=document.getElementById('edit-field-title'),hi=document.getElementById('edit-field-hint'),inp=document.getElementById('input-edit-field');if(fld==='product'){ti.textContent='修改商品名称';hi.textContent=o.customer+' 的订单';inp.value=o.product;inp.type='text';inp.inputMode='text';inp.setAttribute('inputmode','text');}else{ti.textContent='修改数量';hi.textContent=o.customer+' — '+o.product;inp.value=o.qty;inp.type='number';inp.inputMode='numeric';inp.setAttribute('inputmode','numeric');inp.min='1';inp.step='1';}document.getElementById('modal-edit-field').classList.add('show');setTimeout(()=>{inp.focus();inp.select();},300);}
+function openEditFieldModal(oid,fld){const o=orders.find(o=>o.id===oid);if(!o)return;editingField={orderId:oid,field:fld};const ti=document.getElementById('edit-field-title'),hi=document.getElementById('edit-field-hint'),inp=document.getElementById('input-edit-field');if(fld==='product'){ti.textContent='修改商品名称';hi.textContent=o.customer+' 的订单';inp.value=o.product;inp.type='text';inp.inputMode='text';inp.setAttribute('inputmode','text');}else{ti.textContent='修改数量';hi.textContent=o.customer+' — '+o.product;inp.value=o.qty;inp.type='number';inp.inputMode='numeric';inp.setAttribute('inputmode','numeric');inp.min='1';inp.step='1';}document.getElementById('modal-edit-field').classList.add('show');requestAnimationFrame(()=>{requestAnimationFrame(()=>{inp.focus();inp.select();});});}
 function closeEditFieldModal(){document.getElementById('modal-edit-field').classList.remove('show');editingField=null;}
 function confirmEditField(){if(!editingField)return;const o=orders.find(o=>o.id===editingField.orderId);if(!o)return;const raw=document.getElementById('input-edit-field').value.trim();if(editingField.field==='product'){if(!raw){toast('请输入商品名称');return;}o.product=raw;}else{const n=parseInt(raw,10);if(!n||n<1){toast('请输入有效数量');return;}if(o.purchased>n)o.purchased=n;o.qty=n;}save(ORDERS_KEY,orders);renderAll();closeEditFieldModal();toast(editingField.field==='product'?'商品名已更新':'数量已更新');}
 
-function openPriceModal(oid){const o=orders.find(o=>o.id===oid);if(!o)return;editingOrderId=oid;document.getElementById('price-modal-title').textContent='修改售价';document.getElementById('price-modal-sub').textContent=o.customer+' 的 '+o.product;document.getElementById('input-edit-price').value=o.sellingPrice||'';document.getElementById('modal-price').classList.add('show');setTimeout(()=>{document.getElementById('input-edit-price').focus();document.getElementById('input-edit-price').select();},300);}
+function openPriceModal(oid){const o=orders.find(o=>o.id===oid);if(!o)return;editingOrderId=oid;document.getElementById('price-modal-title').textContent='修改售价';document.getElementById('price-modal-sub').textContent=o.customer+' 的 '+o.product;document.getElementById('input-edit-price').value=o.sellingPrice||'';document.getElementById('modal-price').classList.add('show');requestAnimationFrame(()=>{requestAnimationFrame(()=>{const inp=document.getElementById('input-edit-price');inp.focus();inp.select();});});}
 function closePriceModal(){document.getElementById('modal-price').classList.remove('show');editingOrderId=null;}
 function confirmPriceEdit(){if(!editingOrderId)return;const raw=document.getElementById('input-edit-price').value.trim(),np=raw?parseFloat(raw):0;if(isNaN(np)||np<0){toast('请输入有效的价格');return;}const o=orders.find(o=>o.id===editingOrderId);if(o){o.sellingPrice=np;save(ORDERS_KEY,orders);renderAll();toast('售价已更新：¥'+np.toFixed(2));}closePriceModal();}
 
@@ -817,7 +820,7 @@ function switchTab(tab){
 // ═══════════════════════════════════════════════════════
 // 添加订单
 // ═══════════════════════════════════════════════════════
-function openAddModal(){document.getElementById('modal-add').classList.add('show');showAddStep(1);document.getElementById('input-raw-order').value='';setTimeout(()=>document.getElementById('input-raw-order').focus(),300);}
+function openAddModal(){document.getElementById('modal-add').classList.add('show');showAddStep(1);document.getElementById('input-raw-order').value='';requestAnimationFrame(()=>{requestAnimationFrame(()=>{const inp=document.getElementById('input-raw-order');inp.focus();inp.click();});});}
 function closeAddModal(){document.getElementById('modal-add').classList.remove('show');}
 function showAddStep(n){document.getElementById('add-step1').classList.toggle('active',n===1);document.getElementById('add-step2').classList.toggle('active',n===2);}
 function parseAndReview(){const raw=document.getElementById('input-raw-order').value,p=parseOrderInput(raw);if(!p){toast('格式错误！请输入：客户 商品 数量 [售价] [地点]');return;}let fl=p.location;const bd=document.getElementById('auto-fill-badge');if(!fl){const m=getProductMeta(p.product);if(m.lastLocation){fl=m.lastLocation;bd.style.display='inline-block';}else bd.style.display='none';}else bd.style.display='none';document.getElementById('input-confirm-customer').value=p.customer;document.getElementById('input-confirm-product').value=p.product;document.getElementById('input-confirm-qty').value=p.qty;document.getElementById('input-confirm-price').value=p.sellingPrice||'';document.getElementById('input-confirm-location').value=fl;showAddStep(2);setTimeout(()=>document.getElementById('input-confirm-customer').focus(),200);}
@@ -827,7 +830,7 @@ function confirmAddOrder(){const cust=document.getElementById('input-confirm-cus
 // ═══════════════════════════════════════════════════════
 // 采购入库
 // ═══════════════════════════════════════════════════════
-function openStockModal(){document.getElementById('modal-stock').classList.add('show');showStockStep(1);document.getElementById('input-raw-stock').value='';setTimeout(()=>document.getElementById('input-raw-stock').focus(),300);}
+function openStockModal(){document.getElementById('modal-stock').classList.add('show');showStockStep(1);document.getElementById('input-raw-stock').value='';requestAnimationFrame(()=>{requestAnimationFrame(()=>{const inp=document.getElementById('input-raw-stock');inp.focus();inp.click();});});}
 function closeStockModal(){document.getElementById('modal-stock').classList.remove('show');pendingAlloc=null;}
 function showStockStep(n){document.getElementById('stock-step1').classList.toggle('active',n===1);document.getElementById('stock-step2').classList.toggle('active',n===2);}
 function previewAllocation(){const raw=document.getElementById('input-raw-stock').value,p=parseStockInput(raw);if(!p){toast('格式错误！请输入：商品 数量 [单价] [地点]');return;}const r=allocatePurchase(p.product,p.qty,p.unitPrice,p.location);pendingAlloc=r;document.getElementById('stock-preview-title').textContent='「'+r.product+'」入库 '+r.totalQty+' 个'+(r.unitPrice>0?'（单价 ¥'+r.unitPrice.toFixed(2)+'）':'')+(r.location?' @'+r.location:'');const le=document.getElementById('alloc-preview-list'),bc=document.getElementById('btn-confirm-alloc');if(r.allocated.length===0&&r.remaining===r.totalQty){le.innerHTML='<div style="text-align:center;color:var(--secondary);padding:12px;font-size:14px">该商品当前无客户缺口<br>全部 <b>'+r.totalQty+'</b> 个将存入 <b>【系统库存】</b></div>';document.getElementById('alloc-summary-msg').innerHTML='<span style="color:var(--orange)">📦 全部转入系统库存，待后续分配</span>';document.getElementById('alloc-summary-msg').className='alloc-summary excess';bc.style.display='';}else{let lh='';for(const a of r.allocated){lh+='<div class="alloc-item"><span class="cust">👤 '+esc(a.customer)+'</span><span>缺口 '+a.gapBefore+' → <span class="val">+'+a.allocated+'</span>（剩 '+a.gapAfter+'）</span></div>';}le.innerHTML=lh||'<div style="text-align:center;color:var(--secondary);padding:12px">无待分配客户</div>';const se=document.getElementById('alloc-summary-msg');if(r.remaining>0){se.innerHTML='⚠️ 客户缺口已补完，剩余 <b>'+r.remaining+'</b> 个将存入【系统库存】';se.className='alloc-summary excess';}else{se.innerHTML='✅ 刚好分完，所有客户缺口已覆盖';se.className='alloc-summary all-done';}bc.style.display='';}showStockStep(2);}
@@ -843,11 +846,14 @@ document.getElementById('input-raw-stock').addEventListener('keydown',function(e
 document.getElementById('input-confirm-qty').addEventListener('keydown',function(e){if(e.key==='Enter')confirmAddOrder();});
 document.getElementById('input-edit-price').addEventListener('keydown',function(e){if(e.key==='Enter')confirmPriceEdit();});
 document.getElementById('input-edit-field').addEventListener('keydown',function(e){if(e.key==='Enter')confirmEditField();});
-// 搜索：Enter 执行搜索，实时输入过滤商品
+// 搜索：Enter 执行搜索（区分 tab），实时输入仅在商品汇总页过滤
 document.getElementById('searchInput').addEventListener('keydown',function(e){if(e.key==='Enter'){e.preventDefault();doSearch();}});
 document.getElementById('searchInput').addEventListener('input',function(){
   const q=this.value.trim();
-  if(document.getElementById('tab-products').classList.contains('active')){if(q)filterProducts(q);else{document.querySelectorAll('#tab-products tbody tr').forEach(r=>r.style.display='');}}
+  // 仅在商品汇总页实时过滤；客户页不处理 input，等 Enter 触发
+  if(!document.getElementById('tab-products').classList.contains('active'))return;
+  if(q){filterProducts(q);}
+  else{document.querySelectorAll('#tab-products tbody tr').forEach(r=>r.style.display='');}
 });
 
 // ═══════════════════════════════════════════════════════
