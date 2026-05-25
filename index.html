@@ -701,6 +701,9 @@ for(const o of orders){
   if(o.sellingPrice===undefined)o.sellingPrice=0;
   if(o.isPaid===undefined)o.isPaid=false;
 }
+// 清理旧版遗留的系统库存 order 行（新版通过 purchaseLogs 进销分离计算库存，无需这些行）
+const hadSysOrders=orders.some(o=>o.customer===SYS_CUSTOMER);
+if(hadSysOrders){orders=orders.filter(o=>o.customer!==SYS_CUSTOMER);save(ORDERS_KEY,orders);}
 
 function getProductMeta(p){return productMeta[p]||{lastLocation:'',lastPrice:0};}
 function updateProductMeta(product,location,price){
@@ -740,6 +743,8 @@ function clearSearch(){
   document.getElementById('searchWrap').classList.remove('open');
   document.querySelectorAll('#tab-products tr').forEach(r=>r.style.display='');
   document.querySelectorAll('.flash-highlight').forEach(c=>c.classList.remove('flash-highlight'));
+  // 恢复默认折叠状态
+  document.querySelectorAll('#tab-products .location-body.open').forEach(b=>{b.classList.remove('open');const t=b.previousElementSibling;if(t){const a=t.querySelector('.arrow');if(a)a.classList.remove('open');}});
 }
 function doSearch(){
   const q=document.getElementById('searchInput').value.trim();
@@ -756,7 +761,19 @@ function searchCustomers(query){
 }
 function filterProducts(query){
   const q=query.toLowerCase();let mc=0;
-  document.querySelectorAll('#tab-products tbody tr').forEach(r=>{const td=r.querySelector('td:first-child');if(td&&td.textContent.toLowerCase().includes(q)){r.style.display='';mc++;}else r.style.display='none';});
+  document.querySelectorAll('#tab-products tbody tr').forEach(r=>{
+    const td=r.querySelector('td:first-child');
+    if(td&&td.textContent.toLowerCase().includes(q)){
+      r.style.display='';mc++;
+      // 自动展开该行所属的地点折叠层
+      const body=r.closest('.location-body');
+      if(body&&!body.classList.contains('open')){
+        body.classList.add('open');
+        const toggle=body.previousElementSibling;
+        if(toggle){const arrow=toggle.querySelector('.arrow');if(arrow)arrow.classList.add('open');}
+      }
+    }else{r.style.display='none';}
+  });
   if(mc===0&&q)toast('未找到匹配的商品');
 }
 
@@ -829,17 +846,16 @@ function parseStockInput(raw){
 function autoConsumeSystemStock(newOrderId){
   const newOrder=orders.find(o=>o.id===newOrderId);
   if(!newOrder||newOrder.customer===SYS_CUSTOMER)return;
-  const stockItems=orders.filter(o=>o.customer===SYS_CUSTOMER&&o.product===newOrder.product&&o.purchased>0);
-  let consumed=0;
-  for(const s of stockItems){
-    if(newOrder.purchased>=newOrder.qty)break;
-    const avail=s.purchased;if(avail<=0)continue;
-    const gap=newOrder.qty-newOrder.purchased;const take=Math.min(gap,avail);
-    newOrder.purchased+=take;s.purchased-=take;s.qty-=take;consumed+=take;
+  // 计算当前真实库存（不含本新订单的需求）
+  const stock=getCurrentStock(newOrder.product);
+  if(stock<=0)return;
+  const gap=newOrder.qty-newOrder.purchased;
+  const consume=Math.min(gap,stock);
+  if(consume>0){
+    newOrder.purchased+=consume;
+    save(ORDERS_KEY,orders);
+    toast('📦 自动从系统库存消耗了 '+consume+' 个「'+newOrder.product+'」');
   }
-  orders=orders.filter(o=>!(o.customer===SYS_CUSTOMER&&o.purchased<=0));
-  save(ORDERS_KEY,orders);
-  if(consumed>0)toast('📦 自动从系统库存消耗了 '+consumed+' 个「'+newOrder.product+'」');
 }
 function allocatePurchase(product,qty,unitPrice,location){
   const targets=[];
@@ -881,8 +897,10 @@ function getCurrentStock(product){
 // 商品汇总（按地点分组）
 // ═══════════════════════════════════════════════════════
 function getProductSummaryByLocation(){
+  // 只统计真实客户订单（排除系统库存行）
   const map={};
   for(const o of orders){
+    if(o.customer===SYS_CUSTOMER)continue;
     const loc=o.location||'未指定地点';if(!map[loc])map[loc]={};
     if(!map[loc][o.product])map[loc][o.product]={product:o.product,total:0,purchased:0};
     map[loc][o.product].total+=o.qty;map[loc][o.product].purchased+=o.purchased;
@@ -892,6 +910,20 @@ function getProductSummaryByLocation(){
     result.push({location:loc,products:Object.values(prods).sort((a,b)=>a.product.localeCompare(b.product,'zh'))});
   }
   result.sort((a,b)=>a.location.localeCompare(b.location,'zh'));
+
+  // 收集所有有剩余库存的商品（进销分离），归入「系统库存」虚拟分组
+  const allProducts=new Set([...orders.map(o=>o.product),...purchaseLogs.map(l=>l.product)]);
+  const stockProducts=[];
+  for(const product of allProducts){
+    const stock=getCurrentStock(product);
+    if(stock>0){
+      stockProducts.push({product,total:stock,purchased:stock,isStock:true});
+    }
+  }
+  if(stockProducts.length>0){
+    stockProducts.sort((a,b)=>a.product.localeCompare(b.product,'zh'));
+    result.push({location:'📦 系统库存',products:stockProducts,isStockSection:true});
+  }
   return result;
 }
 
@@ -900,15 +932,17 @@ function getProductSummaryByLocation(){
 // ═══════════════════════════════════════════════════════
 function renderCustomers(){
   const container=document.getElementById('customer-table-container');
-  if(orders.length===0){
+  const realOrders=orders.filter(o=>o.customer!==SYS_CUSTOMER);
+  if(realOrders.length===0){
     container.innerHTML='<div class="empty-state"><div class="icon">📋</div><p>暂无订单<br>点击底部按钮添加</p></div>';
     return;
   }
   const grouped={};
-  for(const o of orders){if(!grouped[o.customer])grouped[o.customer]=[];grouped[o.customer].push(o);}
-  const keys=Object.keys(grouped).sort((a,b)=>{
-    if(a===SYS_CUSTOMER)return 1;if(b===SYS_CUSTOMER)return-1;return a.localeCompare(b,'zh');
-  });
+  for(const o of orders){
+    if(o.customer===SYS_CUSTOMER)continue; // 系统库存不在客户订单表显示
+    if(!grouped[o.customer])grouped[o.customer]=[];grouped[o.customer].push(o);
+  }
+  const keys=Object.keys(grouped).sort((a,b)=>a.localeCompare(b,'zh'));
   let html='';
   for(const customer of keys){
     const items=grouped[customer];const isSys=customer===SYS_CUSTOMER;
@@ -960,7 +994,10 @@ function renderProducts(){
   const container=document.getElementById('product-table-container');
   const chipsEl=document.getElementById('product-summary-chips');
   let totalKinds=0,totalGap=0,urgentKinds=0;
-  for(const loc of summary){for(const p of loc.products){totalKinds++;const g=p.total-p.purchased;if(g>0){urgentKinds++;totalGap+=g;}}}
+  for(const loc of summary){
+    if(loc.isStockSection)continue; // 系统库存不计入待采购统计
+    for(const p of loc.products){totalKinds++;const g=p.total-p.purchased;if(g>0){urgentKinds++;totalGap+=g;}}
+  }
   chipsEl.innerHTML=
     '<div class="summary-chip"><div class="num">'+summary.length+'</div><div class="lbl">采购地点</div></div>'+
     '<div class="summary-chip"><div class="num">'+totalKinds+'</div><div class="lbl">商品种类</div></div>'+
@@ -969,21 +1006,37 @@ function renderProducts(){
   if(summary.length===0){container.innerHTML='<div class="empty-state"><div class="icon">📦</div><p>暂无商品数据</p></div>';return;}
   let html='';
   for(const loc of summary){
-    const locGap=loc.products.reduce((s,p)=>s+Math.max(0,p.total-p.purchased),0);
-    const allDone=locGap===0;
+    const isStock=loc.isStockSection||false;
+    const locGap=isStock?0:loc.products.reduce((s,p)=>s+Math.max(0,p.total-p.purchased),0);
+    const allDone=isStock||locGap===0;
     html+='<div class="location-group">';
     html+='<div class="location-toggle" onclick="toggleLocation(this)">';
-    html+='<div><span style="font-size:18px">📍</span> '+esc(loc.location)+'<span style="font-size:12px;color:var(--secondary);margin-left:8px">'+loc.products.length+' 种</span></div>';
-    html+='<div style="display:flex;align-items:center;gap:12px"><span style="font-size:12px;color:'+(allDone?'var(--green)':'var(--red)')+'">'+(allDone?'✅ 已齐':'⚠️ 缺口 '+locGap)+'</span><span class="arrow">▶</span></div></div>';
-    html+='<div class="location-body" data-location="'+escJs(loc.location)+'">';
-    html+='<table class="table-dense"><thead><tr><th class="col-prod">商品</th><th class="col-num">总需</th><th class="col-num">已采</th><th class="col-price">单价</th><th class="col-gap">缺口</th><th class="col-act"></th></tr></thead><tbody>';
-    for(const p of loc.products){
-      const gap=p.total-p.purchased;const rowClass=gap>0?'row-urgent':'row-done';
-      const price=getLatestPrice(p.product);
-      const priceStr=price>0?'¥'+price.toFixed(2):'<span style="color:#ccc">-</span>';
-      html+='<tr class="'+rowClass+'"><td style="font-weight:600">'+esc(p.product)+'</td><td class="col-num">'+p.total+'</td><td class="col-num">'+p.purchased+'</td><td class="col-price" style="font-size:11px;font-weight:600">'+priceStr+'</td><td class="col-gap">'+(gap>0?'<span class="gap urgent">'+gap+'</span>':'<span class="gap done">✓</span>')+'</td><td class="col-act"><button class="btn-plus1" onclick="event.stopPropagation();quickStockIn(\''+escJs(p.product)+'\')" title="快捷入库 +1">+</button></td></tr>';
+    if(isStock){
+      html+='<div><span style="font-size:18px">📦</span> 系统库存<span style="font-size:12px;color:var(--secondary);margin-left:8px">'+loc.products.length+' 种</span></div>';
+      html+='<div style="display:flex;align-items:center;gap:12px"><span style="font-size:12px;color:var(--orange)">库存 '+loc.products.reduce((s,p)=>s+p.total,0)+' 件</span><span class="arrow">▶</span></div></div>';
+    }else{
+      html+='<div><span style="font-size:18px">📍</span> '+esc(loc.location)+'<span style="font-size:12px;color:var(--secondary);margin-left:8px">'+loc.products.length+' 种</span></div>';
+      html+='<div style="display:flex;align-items:center;gap:12px"><span style="font-size:12px;color:'+(allDone?'var(--green)':'var(--red)')+'">'+(allDone?'✅ 已齐':'⚠️ 缺口 '+locGap)+'</span><span class="arrow">▶</span></div></div>';
     }
-    html+='</tbody></table></div></div>';
+    html+='<div class="location-body" data-location="'+escJs(loc.location)+'">';
+    if(isStock){
+      html+='<table class="table-dense"><thead><tr><th class="col-prod">商品</th><th class="col-num">库存量</th><th class="col-price">单价</th><th class="col-gap"></th></tr></thead><tbody>';
+      for(const p of loc.products){
+        const price=getLatestPrice(p.product);
+        const priceStr=price>0?'¥'+price.toFixed(2):'<span style="color:#ccc">-</span>';
+        html+='<tr class="row-done"><td style="font-weight:600">'+esc(p.product)+'</td><td class="col-num" style="color:var(--orange);font-weight:700">'+p.total+'</td><td class="col-price" style="font-size:11px;font-weight:600">'+priceStr+'</td><td class="col-gap"><span style="color:var(--orange);font-size:11px">库存</span></td></tr>';
+      }
+      html+='</tbody></table></div></div>';
+    }else{
+      html+='<table class="table-dense"><thead><tr><th class="col-prod">商品</th><th class="col-num">总需</th><th class="col-num">已采</th><th class="col-price">单价</th><th class="col-gap">缺口</th><th class="col-act"></th></tr></thead><tbody>';
+      for(const p of loc.products){
+        const gap=p.total-p.purchased;const rowClass=gap>0?'row-urgent':'row-done';
+        const price=getLatestPrice(p.product);
+        const priceStr=price>0?'¥'+price.toFixed(2):'<span style="color:#ccc">-</span>';
+        html+='<tr class="'+rowClass+'"><td style="font-weight:600">'+esc(p.product)+'</td><td class="col-num">'+p.total+'</td><td class="col-num">'+p.purchased+'</td><td class="col-price" style="font-size:11px;font-weight:600">'+priceStr+'</td><td class="col-gap">'+(gap>0?'<span class="gap urgent">'+gap+'</span>':'<span class="gap done">✓</span>')+'</td><td class="col-act"><button class="btn-plus1" onclick="event.stopPropagation();quickStockIn(\''+escJs(p.product)+'\')" title="快捷入库 +1">+</button></td></tr>';
+      }
+      html+='</tbody></table></div></div>';
+    }
   }
   container.innerHTML=html;
 }
@@ -1021,11 +1074,7 @@ function toggleLocation(toggleEl){const body=toggleEl.nextElementSibling,arrow=t
 function quickStockIn(product){
   const target=orders.find(o=>o.customer!==SYS_CUSTOMER&&o.product===product&&o.purchased<o.qty);
   if(target)target.purchased++;
-  else{
-    const existing=orders.find(o=>o.customer===SYS_CUSTOMER&&o.product===product);
-    if(existing){existing.qty++;existing.purchased++;}
-    else orders.push({id:genId(),customer:SYS_CUSTOMER,product,qty:1,sellingPrice:0,purchased:1,isPaid:false,location:''});
-  }
+  // 若无缺口客户，直接记入 purchaseLogs 即可，getCurrentStock() 会自动反映库存增加
   const price=getLatestPrice(product),cost=price>0?price:0;
   purchaseLogs.push({id:genId(),product,qty:1,unitPrice:price,totalCost:cost,location:'',timestamp:Date.now()});
   save(ORDERS_KEY,orders);save(LOGS_KEY,purchaseLogs);renderAll();
@@ -1033,9 +1082,13 @@ function quickStockIn(product){
 }
 // 删除订单：仅移除 orders 中的销售记录，purchaseLogs（进货流水）保持不可变
 // 删除后该商品的已售数量自动减少，库存通过 getCurrentStock() 自然弹回
+// 同时清理已失效的系统库存 order 行（因为库存现在由 purchaseLogs - allocated 计算，系统库存 order 行不再需要）
 function deleteOrder(id){
   if(!confirm('确定删除？'))return;
-  orders=orders.filter(o=>o.id!==id);save(ORDERS_KEY,orders);renderAll();toast('已删除');
+  orders=orders.filter(o=>o.id!==id);
+  // 清理所有系统库存 order 行（系统库存现在通过 getCurrentStock() 计算，不依赖这些行）
+  orders=orders.filter(o=>o.customer!==SYS_CUSTOMER);
+  save(ORDERS_KEY,orders);renderAll();toast('已删除');
 }
 function togglePaid(id){
   const order=orders.find(o=>o.id===id);
@@ -1192,8 +1245,8 @@ function backToStockStep1(){pendingAlloc=null;showStockStep(1);document.getEleme
 function confirmAllocation(){
   if(!pendingAlloc)return;
   const{allocated,remaining,product,totalQty,unitPrice,location}=pendingAlloc;
-  for(const a of allocated){const t=orders.find(o=>o.customer===a.customer&&o.product===product&&o.purchased<o.qty);if(t)t.purchased+=a.allocated;}
-  if(remaining>0){orders.push({id:genId(),customer:SYS_CUSTOMER,product,qty:remaining,sellingPrice:0,purchased:remaining,isPaid:false,location});}
+  for(const a of allocated){const t=orders.find(o=>o.customer!==SYS_CUSTOMER&&o.product===product&&o.purchased<o.qty);if(t)t.purchased+=a.allocated;}
+  // 不再创建系统库存 order 行；剩余库存通过 getCurrentStock() = purchaseLogs - allocated 自动计算
   const cost=unitPrice>0?totalQty*unitPrice:0;
   purchaseLogs.push({id:genId(),product,qty:totalQty,unitPrice,totalCost:cost,location,timestamp:Date.now()});
   save(LOGS_KEY,purchaseLogs);updateProductMeta(product,location,unitPrice);save(ORDERS_KEY,orders);
