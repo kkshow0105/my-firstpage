@@ -1408,16 +1408,16 @@ function quickStockIn(product){
   toast('✅ '+product+' +1 已入库'+(cost>0?'（¥'+cost.toFixed(2)+'）':''));
 }
 // 长按删除绑定（每次 renderCustomers 后调用）
-let _lpTimer=null,_lpRow=null;
+let _lpTimer=null,_lpRow=null,_lpMoved=false;
 function bindLongPress(){
   document.querySelectorAll('#tab-customers .tap-row[data-id]').forEach(row=>{
     const id=row.getAttribute('data-id');
-    const start=e=>{
-      e.preventDefault(); // 阻止长按弹出选文字/预览菜单
-      _lpRow=row;
-      row.style.transition='background 0.5s';
+    const startTimer=()=>{
+      _lpRow=row;_lpMoved=false;
+      row.style.transition='background 0.6s';
       row.style.background='#ffe0e0';
       _lpTimer=setTimeout(()=>{
+        if(_lpMoved)return;
         row.style.background='';row.style.transition='';
         deleteOrder(id);
       },700);
@@ -1426,10 +1426,12 @@ function bindLongPress(){
       clearTimeout(_lpTimer);_lpTimer=null;
       if(_lpRow){_lpRow.style.background='';_lpRow.style.transition='';_lpRow=null;}
     };
-    row.addEventListener('touchstart',start,{passive:false});
-    row.addEventListener('touchend',cancel);
-    row.addEventListener('touchmove',cancel);
-    row.addEventListener('mousedown',start);
+    // touch: passive:true 保留 click 触发能力，CSS user-select 阻止文字选中
+    row.addEventListener('touchstart',startTimer,{passive:true});
+    row.addEventListener('touchend',cancel,{passive:true});
+    row.addEventListener('touchmove',()=>{_lpMoved=true;cancel();},{passive:true});
+    // mouse: 仅左键
+    row.addEventListener('mousedown',e=>{if(e.button===0)startTimer();});
     row.addEventListener('mouseup',cancel);
     row.addEventListener('mouseleave',cancel);
   });
