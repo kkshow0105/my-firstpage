@@ -308,7 +308,9 @@ tr.row-done{background:#f5fff7}
 .finance-value{
   font-size:clamp(13px,4.5vw,19px);font-weight:800;letter-spacing:-0.5px;
   color:var(--red);white-space:nowrap;min-width:0;flex-shrink:1;
+  cursor:pointer;-webkit-tap-highlight-color:transparent;
 }
+.finance-value:active{opacity:0.7}
 .finance-value.sales{color:var(--green)}
 .finance-sub{font-size:10px;color:var(--secondary);margin-top:1px}
 
@@ -562,6 +564,13 @@ tr.sys-stock td{color:#856404}
   }
   .finance-label{color:#555!important}
   .finance-value{color:#d32f2f!important}
+  /* 打印时显示完整金额，不用万单位 */
+  #finance-total::before{content:'¥' attr(data-raw);display:block}
+  #finance-total{font-size:0!important}
+  #finance-total::before{font-size:14px!important;font-weight:800;color:#d32f2f}
+  #finance-sales::before{content:'¥' attr(data-raw);display:block}
+  #finance-sales{font-size:0!important}
+  #finance-sales::before{font-size:14px!important;font-weight:800;color:#2e7d32}
   .finance-sub{color:#777!important}
 
   .empty-state{padding:20px;color:#999}
@@ -623,14 +632,14 @@ tr.sys-stock td{color:#856404}
       <div class="finance-label">💰 采购花费</div>
       <div class="finance-sub" id="finance-orders">0 笔入库记录</div>
     </div>
-    <div class="finance-value" id="finance-total">¥0.00</div>
+    <div class="finance-value" id="finance-total" onclick="toggleFinanceDisplay('total')" title="点击切换显示单位">¥0.00</div>
   </div>
   <div class="finance-col">
     <div class="finance-col-labels">
       <div class="finance-label">🏷️ 销售额</div>
-      <div class="finance-sub" id="finance-sales-sub">已采购项合计</div>
+      <div class="finance-sub" id="finance-sales-sub">已采购合计</div>
     </div>
-    <div class="finance-value sales" id="finance-sales">¥0.00</div>
+    <div class="finance-value sales" id="finance-sales" onclick="toggleFinanceDisplay('sales')" title="点击切换显示单位">¥0.00</div>
   </div>
 </div>
 
@@ -1344,21 +1353,40 @@ function getEffectivePrice(product){
   }
   return 0;
 }
+// ─── 财务面板数字切换（万单位 ↔ 完整数字）───
+const financeToggle={total:false, sales:false}; // false=万单位, true=完整
+function formatFinanceAmt(val, showFull){
+  if(val>=10000&&!showFull){
+    return '¥'+(val/10000).toFixed(2)+'万';
+  }
+  return '¥'+val.toFixed(2);
+}
+function toggleFinanceDisplay(which){
+  financeToggle[which]=!financeToggle[which];
+  renderFinance();
+}
+
 function renderFinance(){
-  // 累计采购花费 = Σ purchaseLogs[i].totalCost（每条流水自带正确花费）
+  // 累计采购花费 = Σ purchaseLogs[i].totalCost
   let totalSpend=0;
   for(const log of purchaseLogs){
     totalSpend+=log.totalCost||0;
   }
-  // 总销售额 = Σ 所有客户订单 已采购数量 × 售价
+  // 销售额 = Σ 所有客户订单 已采购数量 × 售价
   let totalSales=0;
   for(const o of orders){
     if(o.customer===SYS_CUSTOMER)continue;
     totalSales+=o.purchased*(o.sellingPrice||0);
   }
-  document.getElementById('finance-total').textContent='¥'+totalSpend.toFixed(2);
+  // 存原始值供打印用
+  const elTotal=document.getElementById('finance-total');
+  const elSales=document.getElementById('finance-sales');
+  elTotal.dataset.raw=totalSpend.toFixed(2);
+  elSales.dataset.raw=totalSales.toFixed(2);
+  // 显示：超过1万时用万单位，点击切换
+  elTotal.textContent=formatFinanceAmt(totalSpend, financeToggle.total);
+  elSales.textContent=formatFinanceAmt(totalSales, financeToggle.sales);
   document.getElementById('finance-orders').textContent=purchaseLogs.length+' 笔入库记录';
-  document.getElementById('finance-sales').textContent='¥'+totalSales.toFixed(2);
 }
 function renderAll(){
   const expanded=captureExpandedLocations();
