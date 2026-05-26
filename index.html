@@ -212,6 +212,12 @@ tr:last-child td{border-bottom:none}
 .status-dot.urgent{background:var(--red)}.status-dot.done{background:var(--green)}
 tr.row-urgent{background:#fff5f5}
 tr.row-done{background:#f5fff7}
+/* Prevent text selection on long-press */
+.tap-row{
+  -webkit-user-select:none;
+  user-select:none;
+  -webkit-touch-callout:none;
+}
 
 /* Customer total */
 .customer-total{background:#f9f9fb!important;border-top:2px solid var(--separator)!important}
@@ -297,9 +303,12 @@ tr.row-done{background:#f5fff7}
   border-left:1px solid var(--separator);
   padding-left:14px;margin-left:2px;
 }
-.finance-col-labels{display:flex;flex-direction:column;gap:2px}
+.finance-col-labels{display:flex;flex-direction:column;gap:2px;min-width:0}
 .finance-label{font-size:12px;color:var(--secondary);font-weight:600;white-space:nowrap}
-.finance-value{font-size:19px;font-weight:800;letter-spacing:-0.5px;color:var(--red);white-space:nowrap}
+.finance-value{
+  font-size:clamp(13px,4.5vw,19px);font-weight:800;letter-spacing:-0.5px;
+  color:var(--red);white-space:nowrap;min-width:0;flex-shrink:1;
+}
 .finance-value.sales{color:var(--green)}
 .finance-sub{font-size:10px;color:var(--secondary);margin-top:1px}
 
@@ -611,14 +620,14 @@ tr.sys-stock td{color:#856404}
 <div class="finance-panel" id="finance-panel">
   <div class="finance-col">
     <div class="finance-col-labels">
-      <div class="finance-label">💰 累计采购花费</div>
+      <div class="finance-label">💰 采购花费</div>
       <div class="finance-sub" id="finance-orders">0 笔入库记录</div>
     </div>
     <div class="finance-value" id="finance-total">¥0.00</div>
   </div>
   <div class="finance-col">
     <div class="finance-col-labels">
-      <div class="finance-label">🏷️ 总销售额</div>
+      <div class="finance-label">🏷️ 销售额</div>
       <div class="finance-sub" id="finance-sales-sub">已采购项合计</div>
     </div>
     <div class="finance-value sales" id="finance-sales">¥0.00</div>
@@ -1221,12 +1230,15 @@ function renderCustomers(){
     html+='<tr class="customer-total">';
     html+='<td colspan="2" style="text-align:right;font-size:12px;color:var(--secondary)">💰 小计</td>';
     html+='<td class="c-price-col" style="color:var(--red)!important;font-size:13px!important;font-weight:700">'+(customerTotal>0?'¥'+customerTotal.toFixed(2):'-')+'</td>';
-    html+='<td colspan="2"></td>';
-    // 待付款
-    html+='<td style="text-align:right;padding-right:4px;white-space:nowrap" class="balance-cell">';
-    html+='<span class="balance-label">待付</span> ';
+    html+='<td colspan="3"></td>';
+    html+='</tr>';
+    // 待付款单独一行（避免和备注列争宽）
     const balColor=balance>0?'var(--green)':balance<0?'var(--red)':'var(--secondary)';
-    html+='<span class="balance-amt" style="color:'+balColor+'">'+(balance===0?'-':(balance>0?'+':'')+balance.toFixed(2))+'</span>';
+    const balText=balance===0?'-':(balance>0?'+':'')+balance.toFixed(2);
+    html+='<tr class="customer-balance-row">';
+    html+='<td colspan="4" style="text-align:right;font-size:12px;color:var(--secondary);padding-top:4px!important;padding-bottom:6px!important">待付款</td>';
+    html+='<td colspan="2" style="text-align:right;padding-right:6px;padding-top:4px!important;padding-bottom:6px!important">';
+    html+='<span style="font-size:13px;font-weight:700;color:'+balColor+'">'+balText+'</span>';
     html+='</td>';
     html+='</tr>';
 
@@ -1333,16 +1345,10 @@ function getEffectivePrice(product){
   return 0;
 }
 function renderFinance(){
-  // 累计采购花费 = Σ per-product(totalQty × effectivePrice)
-  // Group purchaseLogs by product, multiply by effective unit price
-  const productQty={};
-  for(const log of purchaseLogs){
-    productQty[log.product]=(productQty[log.product]||0)+log.qty;
-  }
+  // 累计采购花费 = Σ purchaseLogs[i].totalCost（每条流水自带正确花费）
   let totalSpend=0;
-  for(const[product,qty]of Object.entries(productQty)){
-    const price=getEffectivePrice(product);
-    totalSpend+=qty*price;
+  for(const log of purchaseLogs){
+    totalSpend+=log.totalCost||0;
   }
   // 总销售额 = Σ 所有客户订单 已采购数量 × 售价
   let totalSales=0;
@@ -1379,6 +1385,7 @@ function bindLongPress(){
   document.querySelectorAll('#tab-customers .tap-row[data-id]').forEach(row=>{
     const id=row.getAttribute('data-id');
     const start=e=>{
+      e.preventDefault(); // 阻止长按弹出选文字/预览菜单
       _lpRow=row;
       row.style.transition='background 0.5s';
       row.style.background='#ffe0e0';
@@ -1391,7 +1398,7 @@ function bindLongPress(){
       clearTimeout(_lpTimer);_lpTimer=null;
       if(_lpRow){_lpRow.style.background='';_lpRow.style.transition='';_lpRow=null;}
     };
-    row.addEventListener('touchstart',start,{passive:true});
+    row.addEventListener('touchstart',start,{passive:false});
     row.addEventListener('touchend',cancel);
     row.addEventListener('touchmove',cancel);
     row.addEventListener('mousedown',start);
@@ -1434,13 +1441,16 @@ function togglePaid(id){
   const customer=order.customer;
   const customerItems=orders.filter(o=>o.customer===customer&&o.customer!==SYS_CUSTOMER);
   const{balance}=calcCustomerBalance(customer,customerItems);
-  // 找到该客户卡片里的 balance-cell
   const card=document.querySelector('.card[data-customer="'+CSS.escape(customer)+'"]');
   if(card){
-    const balCell=card.querySelector('.balance-cell');
-    if(balCell){
-      const balColor=balance>0?'var(--green)':balance<0?'var(--red)':'var(--secondary)';
-      balCell.innerHTML='<span class="balance-label">待付</span> <span class="balance-amt" style="color:'+balColor+'">'+(balance===0?'-':(balance>0?'+':'')+balance.toFixed(2))+'</span>';
+    const balRow=card.querySelector('.customer-balance-row');
+    if(balRow){
+      const amtCell=balRow.querySelector('td:last-child span');
+      if(amtCell){
+        const balColor=balance>0?'var(--green)':balance<0?'var(--red)':'var(--secondary)';
+        amtCell.style.color=balColor;
+        amtCell.textContent=balance===0?'-':(balance>0?'+':'')+balance.toFixed(2);
+      }
     }
   }
   toast(order.isPaid?'✅ 已标记收款':'↩️ 已取消收款');
@@ -1709,21 +1719,28 @@ function confirmEditPurchased(){
   const newVal=parseInt(document.getElementById('input-edit-purchased').value,10);
   if(isNaN(newVal)||newVal<0){toast('请输入有效数量（≥0）');return;}
 
-  const currentTotal=getTotalPurchased(product); // 当前 purchaseLogs 总量
+  const currentTotal=getTotalPurchased(product);
   const diff=newVal-currentTotal;
   if(diff===0){closeEditPurchasedModal();return;}
 
   const price=getEffectivePrice(product);
 
   if(diff>0){
-    // 增加入库量：追加一条 purchaseLog
-    purchaseLogs.push({id:genId(),product,qty:diff,unitPrice:price,totalCost:diff*price,location:location==='__stock__'?'':location,timestamp:Date.now()});
+    // 增加入库量：追加一条 purchaseLog，totalCost = diff × price
+    const cost=diff*price;
+    purchaseLogs.push({id:genId(),product,qty:diff,unitPrice:price,totalCost:cost,
+      location:(location&&location!=='__stock__')?location:'',timestamp:Date.now()});
   }else{
-    // 减少入库量：逆序从 purchaseLogs 里扣减 qty
+    // 减少入库量：逆序从 purchaseLogs 里扣减 qty，同比例扣减 totalCost
     let toSub=-diff;
     for(let i=purchaseLogs.length-1;i>=0&&toSub>0;i--){
-      const log=purchaseLogs[i];if(log.product!==product)continue;
-      const take=Math.min(log.qty,toSub);log.qty-=take;log.totalCost=log.qty*log.unitPrice;toSub-=take;
+      const log=purchaseLogs[i];
+      if(log.product!==product)continue;
+      const take=Math.min(log.qty,toSub);
+      const ratio=log.qty>0?take/log.qty:0;
+      log.totalCost=Math.max(0,log.totalCost-log.totalCost*ratio);
+      log.qty-=take;
+      toSub-=take;
     }
     purchaseLogs=purchaseLogs.filter(l=>l.qty>0);
   }
@@ -1739,7 +1756,7 @@ function confirmEditPurchased(){
   }
 
   save(ORDERS_KEY,orders);save(LOGS_KEY,purchaseLogs);renderAll();closeEditPurchasedModal();
-  toast('✅ '+product+' 已采数量已更新为 '+newVal+'，花费已同步');
+  toast('✅ '+product+' 已采更新为 '+newVal+(price>0?'，花费 ¥'+(newVal*price).toFixed(2):''));
 }
 
 // ═══════════════════════════════════════════════════════
