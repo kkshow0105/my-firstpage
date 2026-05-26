@@ -1137,17 +1137,16 @@ function getProductSummaryByLocation(){
   for(const o of orders){
     if(o.customer===SYS_CUSTOMER)continue;
     const loc=o.location||'未指定地点';if(!map[loc])map[loc]={};
-    if(!map[loc][o.product])map[loc][o.product]={product:o.product,total:0};
+    if(!map[loc][o.product])map[loc][o.product]={product:o.product,total:0,purchased:0};
     map[loc][o.product].total+=o.qty;
+    // 已采 = 该地点该商品所有订单的已分配量之和（与客户订单表一致）
+    map[loc][o.product].purchased+=o.purchased;
   }
   const result=[];
   for(const[loc,prods]of Object.entries(map)){
-    // purchased = 实际入库总量（purchaseLogs），展示真实已采购到的数量
-    const products=Object.values(prods).map(p=>({
-      product:p.product,
-      total:p.total,
-      purchased:getTotalPurchased(p.product) // 实际入库总量
-    })).sort((a,b)=>a.product.localeCompare(b.product,'zh'));
+    const products=Object.values(prods)
+      .map(p=>({product:p.product,total:p.total,purchased:p.purchased}))
+      .sort((a,b)=>a.product.localeCompare(b.product,'zh'));
     result.push({location:loc,products});
   }
   result.sort((a,b)=>a.location.localeCompare(b.location,'zh'));
@@ -1408,16 +1407,18 @@ function quickStockIn(product){
   toast('✅ '+product+' +1 已入库'+(cost>0?'（¥'+cost.toFixed(2)+'）':''));
 }
 // 长按删除绑定（每次 renderCustomers 后调用）
-let _lpTimer=null,_lpRow=null,_lpMoved=false;
+let _lpTimer=null,_lpRow=null,_lpMoved=false,_lpActive=false;
 function bindLongPress(){
   document.querySelectorAll('#tab-customers .tap-row[data-id]').forEach(row=>{
     const id=row.getAttribute('data-id');
     const startTimer=()=>{
-      _lpRow=row;_lpMoved=false;
+      _lpActive=false;_lpMoved=false;
+      _lpRow=row;
       row.style.transition='background 0.6s';
       row.style.background='#ffe0e0';
       _lpTimer=setTimeout(()=>{
         if(_lpMoved)return;
+        _lpActive=true; // 标记长按已触发，后续 click 需拦截
         row.style.background='';row.style.transition='';
         deleteOrder(id);
       },700);
@@ -1425,12 +1426,17 @@ function bindLongPress(){
     const cancel=()=>{
       clearTimeout(_lpTimer);_lpTimer=null;
       if(_lpRow){_lpRow.style.background='';_lpRow.style.transition='';_lpRow=null;}
+      // 若长按未真正触发（手指抬起时），短暂屏蔽 click 防止误触
+      // _lpActive=false 时说明是正常短按，不需要屏蔽
     };
-    // touch: passive:true 保留 click 触发能力，CSS user-select 阻止文字选中
+    // 捕获阶段拦截 click：如果长按刚刚触发，吃掉这次 click
+    row.addEventListener('click',e=>{
+      if(_lpActive){_lpActive=false;e.stopPropagation();e.preventDefault();}
+    },true);
+
     row.addEventListener('touchstart',startTimer,{passive:true});
     row.addEventListener('touchend',cancel,{passive:true});
     row.addEventListener('touchmove',()=>{_lpMoved=true;cancel();},{passive:true});
-    // mouse: 仅左键
     row.addEventListener('mousedown',e=>{if(e.button===0)startTimer();});
     row.addEventListener('mouseup',cancel);
     row.addEventListener('mouseleave',cancel);
