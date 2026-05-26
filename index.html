@@ -238,17 +238,70 @@ tr.row-done{background:#f5fff7}
 .summary-chip .lbl{font-size:11px;color:var(--secondary);margin-top:2px}
 .summary-chip.warn .num{color:var(--red)}
 
-/* Finance panel */
+/* Customer card header with prepay */
+.customer-card-header{
+  display:flex;align-items:center;justify-content:space-between;
+  padding:12px 16px 10px;font-size:15px;color:var(--text);font-weight:700;
+}
+.cust-icon{font-size:16px}
+.prepay-badge{
+  display:flex;align-items:center;gap:4px;
+  font-size:12px;font-weight:600;color:var(--secondary);
+  background:#f2f2f7;border-radius:20px;padding:4px 10px;
+  cursor:pointer;transition:background 0.15s;-webkit-tap-highlight-color:transparent;
+  white-space:nowrap;
+}
+.prepay-badge:active{background:#e5e5ea}
+.prepay-amt{color:var(--blue);font-weight:700}
+
+/* Balance in subtotal row */
+.balance-label{font-size:10px;color:var(--secondary);font-weight:600}
+.balance-amt{font-size:12px;font-weight:700}
+.balance-zero{color:var(--secondary);font-size:12px}
+
+/* Note button */
+.btn-note{
+  width:28px;height:28px;border:none;border-radius:8px;
+  background:transparent;font-size:15px;cursor:pointer;
+  display:flex;align-items:center;justify-content:center;
+  -webkit-tap-highlight-color:transparent;transition:background 0.15s;
+  padding:0;
+}
+.btn-note:active{background:#f0f0f5}
+.btn-note-active{background:#fff3e0!important}
+
+/* Print-only rows */
+.customer-prepay-print{display:none}
+
+/* Note preview in table cell */
+.note-preview{
+  font-size:10px;color:var(--orange);max-width:60px;
+  overflow:hidden;text-overflow:ellipsis;white-space:nowrap;
+  display:block;margin-top:1px;
+}
+
+/* Finance panel — two columns, each: label+sub left, value right */
 .finance-panel{
   position:fixed;bottom:calc(76px + var(--safe-bottom));
   left:16px;right:16px;z-index:19;
   background:var(--card-bg);border-radius:var(--radius);
-  padding:12px 16px;display:flex;align-items:center;justify-content:space-between;
+  padding:14px 16px;display:flex;align-items:stretch;
   box-shadow:0 -2px 12px rgba(0,0,0,0.06),0 1px 4px rgba(0,0,0,0.04);
+  gap:0;
 }
-.finance-label{font-size:12px;color:var(--secondary);font-weight:600}
-.finance-value{font-size:22px;font-weight:800;letter-spacing:-0.5px;color:var(--red)}
-.finance-sub{font-size:11px;color:var(--secondary);margin-top:2px}
+.finance-col{
+  flex:1;display:flex;flex-direction:row;align-items:center;
+  justify-content:space-between;gap:8px;
+}
+.finance-col+.finance-col{
+  border-left:1px solid var(--separator);
+  padding-left:14px;margin-left:2px;
+}
+.finance-col-labels{display:flex;flex-direction:column;gap:2px}
+.finance-label{font-size:12px;color:var(--secondary);font-weight:600;white-space:nowrap}
+.finance-value{font-size:19px;font-weight:800;letter-spacing:-0.5px;color:var(--red);white-space:nowrap}
+.finance-value.sales{color:var(--green)}
+.finance-sub{font-size:10px;color:var(--secondary);margin-top:1px}
 
 /* Bottom bar */
 .bottom-bar{
@@ -465,10 +518,15 @@ tr.sys-stock td{color:#856404}
   tbody tr.sys-stock:nth-child(odd){background:#fffef5}
   tbody tr.sys-stock:nth-child(even){background:#fef9e7}
 
+  /* 打印：隐藏地点列、按钮类 UI */
+  .c-loc{display:none!important}
+  .btn-note{display:none!important}
+  .prepay-badge{display:none!important}
+  /* 备注内容：打印时在商品名下方显示 */
+  .note-preview{display:block!important;font-size:9px;color:#b05000}
+
   .customer-total{background:#eef1f5!important;border-top:2px solid #b0b8c0!important}
   .customer-total td{font-weight:700!important;font-size:12px!important}
-
-  .gap.urgent{color:#d32f2f!important;font-weight:700}
   .gap.done{color:#2e7d32!important;font-weight:700}
   .purchased-badge{background:#f2f2f7!important;font-size:9px}
   .purchased-badge.full{background:#e8f8ed!important;color:#2e7d32!important}
@@ -549,10 +607,22 @@ tr.sys-stock td{color:#856404}
   </div>
 </div>
 
-<!-- 财务看板 -->
+<!-- 财务看板（商品汇总页固定显示在操作栏上方） -->
 <div class="finance-panel" id="finance-panel">
-  <div><div class="finance-label">💰 累计采购花费</div><div class="finance-sub" id="finance-orders">0 笔入库</div></div>
-  <div class="finance-value" id="finance-total">¥0.00</div>
+  <div class="finance-col">
+    <div class="finance-col-labels">
+      <div class="finance-label">💰 累计采购花费</div>
+      <div class="finance-sub" id="finance-orders">0 笔入库记录</div>
+    </div>
+    <div class="finance-value" id="finance-total">¥0.00</div>
+  </div>
+  <div class="finance-col">
+    <div class="finance-col-labels">
+      <div class="finance-label">🏷️ 总销售额</div>
+      <div class="finance-sub" id="finance-sales-sub">已采购项合计</div>
+    </div>
+    <div class="finance-value sales" id="finance-sales">¥0.00</div>
+  </div>
 </div>
 
 <!-- 底部操作栏 -->
@@ -647,6 +717,66 @@ tr.sys-stock td{color:#856404}
   </div>
 </div>
 
+<!-- ============ Modal: 修改已采数量（商品汇总） ============ -->
+<div class="modal-overlay" id="modal-edit-purchased">
+  <div class="modal-sheet">
+    <h2 id="edit-purchased-title">修改已采数量</h2>
+    <p class="modal-hint" id="edit-purchased-hint"></p>
+    <div class="form-group">
+      <input type="number" id="input-edit-purchased" class="edit-modal-input" min="0" step="1" inputmode="numeric">
+    </div>
+    <div class="btn-row">
+      <button class="btn btn-ghost" onclick="closeEditPurchasedModal()">取消</button>
+      <button class="btn btn-primary" onclick="confirmEditPurchased()">确定</button>
+    </div>
+  </div>
+</div>
+
+<!-- ============ Modal: 修改商品单价（商品汇总） ============ -->
+<div class="modal-overlay" id="modal-edit-product-price">
+  <div class="modal-sheet">
+    <h2 id="edit-product-price-title">修改采购单价</h2>
+    <p class="modal-hint" id="edit-product-price-hint"></p>
+    <div class="form-group">
+      <input type="number" id="input-edit-product-price" class="edit-modal-input" min="0" step="0.01" inputmode="decimal" placeholder="0.00">
+    </div>
+    <div class="btn-row">
+      <button class="btn btn-ghost" onclick="closeEditProductPriceModal()">取消</button>
+      <button class="btn btn-primary" onclick="confirmEditProductPrice()">确定</button>
+    </div>
+  </div>
+</div>
+
+<!-- ============ Modal: 备注 ============ -->
+<div class="modal-overlay" id="modal-note">
+  <div class="modal-sheet">
+    <h2>📝 订单备注</h2>
+    <p class="modal-hint" id="note-modal-sub"></p>
+    <div class="form-group">
+      <textarea id="input-note" placeholder="输入备注内容，留空则清除备注…" style="min-height:100px"></textarea>
+    </div>
+    <div class="btn-row">
+      <button class="btn btn-ghost" onclick="closeNoteModal()">取消</button>
+      <button class="btn btn-primary" onclick="confirmNote()">保存</button>
+    </div>
+  </div>
+</div>
+
+<!-- ============ Modal: 预付款 ============ -->
+<div class="modal-overlay" id="modal-prepay">
+  <div class="modal-sheet">
+    <h2>💰 已付款</h2>
+    <p class="modal-hint" id="prepay-modal-sub"></p>
+    <div class="form-group">
+      <input type="number" id="input-prepay" class="edit-modal-input" min="0" step="0.01" inputmode="decimal" placeholder="0">
+    </div>
+    <div class="btn-row">
+      <button class="btn btn-ghost" onclick="closePrepayModal()">取消</button>
+      <button class="btn btn-primary" onclick="confirmPrepay()">确定</button>
+    </div>
+  </div>
+</div>
+
 <!-- ============ Modal: 采购入库 ============ -->
 <div class="modal-overlay" id="modal-stock">
   <div class="modal-sheet">
@@ -686,6 +816,7 @@ tr.sys-stock td{color:#856404}
 const ORDERS_KEY='dual_table_orders_v6';
 const LOGS_KEY='dual_table_purchase_logs_v6';
 const META_KEY='dual_table_product_meta_v6';
+const PREPAY_KEY='dual_table_prepayments_v6';
 const SYS_CUSTOMER='【系统库存】';
 
 function load(key){try{const r=localStorage.getItem(key);return r?JSON.parse(r):[]}catch{return[]}}
@@ -695,6 +826,9 @@ let orders=load(ORDERS_KEY);
 let purchaseLogs=load(LOGS_KEY);
 let productMeta=load(META_KEY);
 if(!productMeta||typeof productMeta!=='object')productMeta={};
+let prepayments=load(PREPAY_KEY);
+if(!prepayments||typeof prepayments!=='object'||Array.isArray(prepayments))prepayments={};
+// prepayments: { [customerName]: amount }
 
 // ── v5 → v6 数据迁移（防止键名升级导致数据"消失"）──
 if(orders.length===0&&purchaseLogs.length===0&&Object.keys(productMeta).length===0){
@@ -725,6 +859,7 @@ let isComposing=false;  // IME 组合输入标志（拼音/五笔防抖）
 for(const o of orders){
   if(o.sellingPrice===undefined)o.sellingPrice=0;
   if(o.isPaid===undefined)o.isPaid=false;
+  if(o.note===undefined)o.note='';
 }
 // 清理旧版遗留的系统库存 order 行（新版通过 purchaseLogs 进销分离计算库存，无需这些行）
 const hadSysOrders=orders.some(o=>o.customer===SYS_CUSTOMER);
@@ -854,7 +989,7 @@ function filterProducts(query){
 // ═══════════════════════════════════════════════════════
 function openExportModal(){
   closeMenu();
-  const backup={version:1,exportedAt:new Date().toISOString(),orders,purchaseLogs,productMeta};
+  const backup={version:1,exportedAt:new Date().toISOString(),orders,purchaseLogs,productMeta,prepayments};
   document.getElementById('export-json-text').textContent=JSON.stringify(backup,null,2);
   document.getElementById('modal-export').classList.add('show');
 }
@@ -881,15 +1016,17 @@ function confirmImport(){
   if(!data.productMeta||typeof data.productMeta!=='object'){toast('❌ 数据格式不正确：缺少 productMeta');return;}
   if(!confirm('确定要导入备份吗？当前数据将被覆盖。'))return;
   save(ORDERS_KEY,data.orders);save(LOGS_KEY,data.purchaseLogs);save(META_KEY,data.productMeta);
+  if(data.prepayments)save(PREPAY_KEY,data.prepayments);
   orders=data.orders;purchaseLogs=data.purchaseLogs;productMeta=data.productMeta;
+  prepayments=data.prepayments||{};
   renderAll();closeImportModal();toast('✅ 备份数据已成功导入并加载');
 }
 function clearAllData(){
   closeMenu();
   if(!confirm('⚠️ 确定要清空所有数据吗？\n\n此操作将删除全部订单、采购记录和商品信息，且无法撤销。\n\n建议先导出备份数据。'))return;
   if(!confirm('再次确认：确实要清空所有数据？'))return;
-  orders=[];purchaseLogs=[];productMeta={};
-  save(ORDERS_KEY,orders);save(LOGS_KEY,purchaseLogs);save(META_KEY,productMeta);
+  orders=[];purchaseLogs=[];productMeta={};prepayments={};
+  save(ORDERS_KEY,orders);save(LOGS_KEY,purchaseLogs);save(META_KEY,productMeta);save(PREPAY_KEY,prepayments);
   renderAll();toast('✅ 数据已清空，可开始新行程记账');
 }
 
@@ -982,16 +1119,22 @@ function getProductSummaryByLocation(){
   for(const o of orders){
     if(o.customer===SYS_CUSTOMER)continue;
     const loc=o.location||'未指定地点';if(!map[loc])map[loc]={};
-    if(!map[loc][o.product])map[loc][o.product]={product:o.product,total:0,purchased:0};
-    map[loc][o.product].total+=o.qty;map[loc][o.product].purchased+=o.purchased;
+    if(!map[loc][o.product])map[loc][o.product]={product:o.product,total:0};
+    map[loc][o.product].total+=o.qty;
   }
   const result=[];
   for(const[loc,prods]of Object.entries(map)){
-    result.push({location:loc,products:Object.values(prods).sort((a,b)=>a.product.localeCompare(b.product,'zh'))});
+    // purchased = 实际入库总量（purchaseLogs），展示真实已采购到的数量
+    const products=Object.values(prods).map(p=>({
+      product:p.product,
+      total:p.total,
+      purchased:getTotalPurchased(p.product) // 实际入库总量
+    })).sort((a,b)=>a.product.localeCompare(b.product,'zh'));
+    result.push({location:loc,products});
   }
   result.sort((a,b)=>a.location.localeCompare(b.location,'zh'));
 
-  // 收集所有有剩余库存的商品（进销分离），归入「系统库存」虚拟分组
+  // 系统库存分组（purchaseLogs 总量 - 已分配给客户的量）
   const allProducts=new Set([...orders.map(o=>o.product),...purchaseLogs.map(l=>l.product)]);
   const stockProducts=[];
   for(const product of allProducts){
@@ -1008,8 +1151,20 @@ function getProductSummaryByLocation(){
 }
 
 // ═══════════════════════════════════════════════════════
-// 渲染：客户订单（7 列：商品 | 数量 | 售价 | 收款 | 已采购 | 地点 | 删）
+// 渲染：客户订单（6 列：商品 | 数量 | 售价 | 收款 | 已采购 | 备注）
 // ═══════════════════════════════════════════════════════
+function calcCustomerBalance(customer, items){
+  // 已付款（预付款）
+  const prepay=prepayments[customer]||0;
+  // 已收款金额 = 打勾项的 已采购数量 × 售价
+  let paidAmt=0;
+  for(const it of items){
+    if(it.isPaid) paidAmt+=it.purchased*(it.sellingPrice||0);
+  }
+  // 待付款 = 已付款 - 已收款；正数表示预付有余，负数表示还欠
+  const balance=prepay-paidAmt;
+  return{prepay,paidAmt,balance};
+}
 function renderCustomers(){
   const container=document.getElementById('customer-table-container');
   const realOrders=orders.filter(o=>o.customer!==SYS_CUSTOMER);
@@ -1019,51 +1174,67 @@ function renderCustomers(){
   }
   const grouped={};
   for(const o of orders){
-    if(o.customer===SYS_CUSTOMER)continue; // 系统库存不在客户订单表显示
+    if(o.customer===SYS_CUSTOMER)continue;
     if(!grouped[o.customer])grouped[o.customer]=[];grouped[o.customer].push(o);
   }
   const keys=Object.keys(grouped).sort((a,b)=>a.localeCompare(b,'zh'));
   let html='';
   for(const customer of keys){
-    const items=grouped[customer];const isSys=customer===SYS_CUSTOMER;
+    const items=grouped[customer];
+    // 合计金额（全部，按订单数量×售价）
     let customerTotal=0;
     for(const it of items)customerTotal+=it.qty*(it.sellingPrice||0);
+    const{prepay,balance}=calcCustomerBalance(customer,items);
 
-    html+='<div class="card" style="margin-bottom:12px">';
-    html+='<div class="card-header" style="font-size:15px;color:var(--text);font-weight:700;">'+(isSys?'📦':'👤')+' '+esc(customer)+'</div>';
-    html+='<table><thead><tr><th class="c-prod">商品</th><th class="c-num">数量</th><th class="c-price-col">售价</th><th class="c-paid">收款</th><th class="c-prog">已采购</th><th class="c-loc">地点</th><th class="c-act"></th></tr></thead><tbody>';
+    html+='<div class="card" style="margin-bottom:12px" data-customer="'+escJs(customer)+'">';
+    // 卡片头：客户名 + 已付款
+    html+='<div class="card-header customer-card-header">';
+    html+='<span><span class="cust-icon">👤</span> '+esc(customer)+'</span>';
+    html+='<span class="prepay-badge" onclick="event.stopPropagation();openPrepayModal(\''+escJs(customer)+'\')" title="点击修改已付款">';
+    html+='已付款 <span class="prepay-amt">'+(prepay>0?'¥'+prepay.toFixed(2):'¥0')+'</span>';
+    html+='</span>';
+    html+='</div>';
+
+    // 表格
+    html+='<table><thead><tr><th class="c-prod">商品</th><th class="c-num">数量</th><th class="c-price-col">售价</th><th class="c-paid">收款</th><th class="c-prog">已采购</th><th class="c-act"></th></tr></thead><tbody>';
 
     for(const item of items){
       const gap=item.qty-item.purchased;
-      const rowClass=(isSys?'sys-stock ':'')+(gap>0?'row-urgent':'row-done');
+      const rowClass=(gap>0?'row-urgent':'row-done');
       const gapClass=gap>0?'urgent':'done';
       const badgeClass=gap===0?'full':'';
       const sp=item.sellingPrice||0;
       const priceStr=sp>0?'¥'+sp.toFixed(2):'-';
+      const hasNote=item.note&&item.note.trim().length>0;
 
-      html+='<tr class="tap-row '+rowClass.trim()+'">';
-      // 商品名 — 可点击修改
+      html+='<tr class="tap-row '+rowClass+'" data-id="'+item.id+'">';
       html+='<td style="font-weight:600"><span class="cell-clickable" onclick="event.stopPropagation();openEditFieldModal(\''+item.id+'\',\'product\')" title="点击修改商品名">'+esc(item.product)+'</span></td>';
-      // 数量 — 可点击修改
       html+='<td class="c-num"><span class="cell-clickable" onclick="event.stopPropagation();openEditFieldModal(\''+item.id+'\',\'qty\')" title="点击修改数量">'+item.qty+'</span></td>';
-      // 售价 — 可点击修改
       html+='<td class="c-price-col" style="font-weight:600;color:'+(sp>0?'var(--text)':'var(--secondary)')+'"><span class="price-clickable" onclick="event.stopPropagation();openPriceModal(\''+item.id+'\')" title="点击修改售价">'+priceStr+'</span></td>';
-      // 收款 — 复选框（屏幕可见）+ 打印文字
       html+='<td class="c-paid"><span class="paid-cell"><input type="checkbox" class="paid-check" '+(item.isPaid?'checked':'')+' onclick="event.stopPropagation();togglePaid(\''+item.id+'\')" title="标记已收款"><span class="paid-print-text" style="color:'+(item.isPaid?'var(--green)':'var(--secondary)')+'">'+(item.isPaid?'已付':'未付')+'</span></span></td>';
-      // 已采购
       html+='<td class="c-prog"><span class="purchased-badge '+badgeClass+'"><span class="status-dot '+gapClass+'"></span>'+item.purchased+'/'+item.qty+'</span></td>';
-      // 地点
-      html+='<td class="c-loc">'+(item.location?'<span class="tag">'+esc(item.location)+'</span>':'-')+'</td>';
-      // 删除
-      html+='<td class="c-act"><button class="btn-sm btn-del" onclick="event.stopPropagation();deleteOrder(\''+item.id+'\')" title="删除">🗑</button></td>';
+      html+='<td class="c-act"><button class="btn-sm btn-note'+(hasNote?' btn-note-active':'')+'" onclick="event.stopPropagation();openNoteModal(\''+item.id+'\')" title="'+(hasNote?esc(item.note):'添加备注')+'">'+(hasNote?'📝':'📄')+'</button></td>';
       html+='</tr>';
     }
 
-    // 小计
-    html+='<tr class="customer-total"><td colspan="2" style="text-align:right">💰 小计</td><td class="c-price-col" style="color:var(--red)!important;font-size:14px!important">'+(customerTotal>0?'¥'+customerTotal.toFixed(2):'-')+'</td><td colspan="4"></td></tr>';
+    // 小计行
+    html+='<tr class="customer-total">';
+    html+='<td colspan="2" style="text-align:right;font-size:12px;color:var(--secondary)">💰 小计</td>';
+    html+='<td class="c-price-col" style="color:var(--red)!important;font-size:13px!important;font-weight:700">'+(customerTotal>0?'¥'+customerTotal.toFixed(2):'-')+'</td>';
+    html+='<td colspan="2"></td>';
+    // 待付款
+    html+='<td style="text-align:right;padding-right:4px;white-space:nowrap" class="balance-cell">';
+    html+='<span class="balance-label">待付</span> ';
+    const balColor=balance>0?'var(--green)':balance<0?'var(--red)':'var(--secondary)';
+    html+='<span class="balance-amt" style="color:'+balColor+'">'+(balance===0?'-':(balance>0?'+':'')+balance.toFixed(2))+'</span>';
+    html+='</td>';
+    html+='</tr>';
+
     html+='</tbody></table></div>';
   }
   container.innerHTML=html;
+  // 长按删除绑定
+  bindLongPress();
 }
 
 // ═══════════════════════════════════════════════════════
@@ -1103,18 +1274,36 @@ function renderProducts(){
     if(isStock){
       html+='<table class="table-dense"><thead><tr><th class="col-prod">商品</th><th class="col-num">库存量</th><th class="col-price">单价</th><th class="col-gap"></th></tr></thead><tbody>';
       for(const p of loc.products){
-        const price=getLatestPrice(p.product);
+        const price=getEffectivePrice(p.product);
         const priceStr=price>0?'¥'+price.toFixed(2):'<span style="color:#ccc">-</span>';
-        html+='<tr class="row-done"><td style="font-weight:600">'+esc(p.product)+'</td><td class="col-num" style="color:var(--orange);font-weight:700">'+p.total+'</td><td class="col-price" style="font-size:11px;font-weight:600">'+priceStr+'</td><td class="col-gap"><span style="color:var(--orange);font-size:11px">库存</span></td></tr>';
+        const prodJs=escJs(p.product);
+        html+='<tr class="row-done">';
+        html+='<td style="font-weight:600">'+esc(p.product)+'</td>';
+        // 库存量可点击（复用 openEditPurchasedModal）
+        html+='<td class="col-num"><span class="cell-clickable prod-purchased-click" onclick="event.stopPropagation();openEditPurchasedModal(\''+prodJs+'\',\'__stock__\','+p.total+')" title="点击修改库存量" style="color:var(--orange);font-weight:700">'+p.total+'</span></td>';
+        // 单价可点击
+        html+='<td class="col-price" style="font-size:11px;font-weight:600"><span class="cell-clickable prod-price-click" onclick="event.stopPropagation();openEditProductPriceModal(\''+prodJs+'\')" title="点击修改单价">'+priceStr+'</span></td>';
+        html+='<td class="col-gap"><span style="color:var(--orange);font-size:11px">库存</span></td>';
+        html+='</tr>';
       }
       html+='</tbody></table></div></div>';
     }else{
       html+='<table class="table-dense"><thead><tr><th class="col-prod">商品</th><th class="col-num">总需</th><th class="col-num">已采</th><th class="col-price">单价</th><th class="col-gap">缺口</th><th class="col-act"></th></tr></thead><tbody>';
       for(const p of loc.products){
         const gap=p.total-p.purchased;const rowClass=gap>0?'row-urgent':'row-done';
-        const price=getLatestPrice(p.product);
+        const price=getEffectivePrice(p.product);
         const priceStr=price>0?'¥'+price.toFixed(2):'<span style="color:#ccc">-</span>';
-        html+='<tr class="'+rowClass+'"><td style="font-weight:600">'+esc(p.product)+'</td><td class="col-num">'+p.total+'</td><td class="col-num">'+p.purchased+'</td><td class="col-price" style="font-size:11px;font-weight:600">'+priceStr+'</td><td class="col-gap">'+(gap>0?'<span class="gap urgent">'+gap+'</span>':'<span class="gap done">✓</span>')+'</td><td class="col-act"><button class="btn-plus1" onclick="event.stopPropagation();quickStockIn(\''+escJs(p.product)+'\')" title="快捷入库 +1">+</button></td></tr>';
+        const prodJs=escJs(p.product);
+        html+='<tr class="'+rowClass+'">';
+        html+='<td style="font-weight:600">'+esc(p.product)+'</td>';
+        html+='<td class="col-num">'+p.total+'</td>';
+        // 已采 — 可点击修改
+        html+='<td class="col-num"><span class="cell-clickable prod-purchased-click" onclick="event.stopPropagation();openEditPurchasedModal(\''+prodJs+'\',\''+escJs(loc.location)+'\','+p.purchased+')" title="点击修改已采数量">'+p.purchased+'</span></td>';
+        // 单价 — 可点击修改
+        html+='<td class="col-price" style="font-size:11px;font-weight:600"><span class="cell-clickable prod-price-click" onclick="event.stopPropagation();openEditProductPriceModal(\''+prodJs+'\')" title="点击修改单价">'+(price>0?'¥'+price.toFixed(2):'<span style="color:#ccc">-</span>')+'</span></td>';
+        html+='<td class="col-gap">'+(gap>0?'<span class="gap urgent">'+gap+'</span>':'<span class="gap done">✓</span>')+'</td>';
+        html+='<td class="col-act"><button class="btn-plus1" onclick="event.stopPropagation();quickStockIn(\''+prodJs+'\')" title="快捷入库 +1">+</button></td>';
+        html+='</tr>';
       }
       html+='</tbody></table></div></div>';
     }
@@ -1134,15 +1323,36 @@ function restoreExpandedLocations(expanded){
   if(!expanded||expanded.size===0)return;
   document.querySelectorAll('.location-body').forEach(b=>{const loc=b.getAttribute('data-location');if(loc&&expanded.has(loc)){b.classList.add('open');const t=b.previousElementSibling;if(t){const a=t.querySelector('.arrow');if(a)a.classList.add('open');}}});
 }
+function getEffectivePrice(product){
+  // Priority: productMeta override → latest purchaseLog with price
+  const m=getProductMeta(product);
+  if(m.lastPrice>0)return m.lastPrice;
+  for(let i=purchaseLogs.length-1;i>=0;i--){
+    if(purchaseLogs[i].product===product&&purchaseLogs[i].unitPrice>0)return purchaseLogs[i].unitPrice;
+  }
+  return 0;
+}
 function renderFinance(){
-  // 累计采购花费 = Σ purchaseLogs 实际花费（不随订单删除变化）
-  let totalSpend=0;
+  // 累计采购花费 = Σ per-product(totalQty × effectivePrice)
+  // Group purchaseLogs by product, multiply by effective unit price
+  const productQty={};
   for(const log of purchaseLogs){
-    if(log.totalCost>0)totalSpend+=log.totalCost;
-    else if(log.unitPrice>0)totalSpend+=log.qty*log.unitPrice;
+    productQty[log.product]=(productQty[log.product]||0)+log.qty;
+  }
+  let totalSpend=0;
+  for(const[product,qty]of Object.entries(productQty)){
+    const price=getEffectivePrice(product);
+    totalSpend+=qty*price;
+  }
+  // 总销售额 = Σ 所有客户订单 已采购数量 × 售价
+  let totalSales=0;
+  for(const o of orders){
+    if(o.customer===SYS_CUSTOMER)continue;
+    totalSales+=o.purchased*(o.sellingPrice||0);
   }
   document.getElementById('finance-total').textContent='¥'+totalSpend.toFixed(2);
   document.getElementById('finance-orders').textContent=purchaseLogs.length+' 笔入库记录';
+  document.getElementById('finance-sales').textContent='¥'+totalSales.toFixed(2);
 }
 function renderAll(){
   const expanded=captureExpandedLocations();
@@ -1158,43 +1368,81 @@ function quickStockIn(product){
   const target=orders.find(o=>o.customer!==SYS_CUSTOMER&&o.product===product&&o.purchased<o.qty);
   if(target)target.purchased++;
   // 若无缺口客户，直接记入 purchaseLogs 即可，getCurrentStock() 会自动反映库存增加
-  const price=getLatestPrice(product),cost=price>0?price:0;
+  const price=getEffectivePrice(product),cost=price>0?price:0;
   purchaseLogs.push({id:genId(),product,qty:1,unitPrice:price,totalCost:cost,location:'',timestamp:Date.now()});
   save(ORDERS_KEY,orders);save(LOGS_KEY,purchaseLogs);renderAll();
   toast('✅ '+product+' +1 已入库'+(cost>0?'（¥'+cost.toFixed(2)+'）':''));
 }
+// 长按删除绑定（每次 renderCustomers 后调用）
+let _lpTimer=null,_lpRow=null;
+function bindLongPress(){
+  document.querySelectorAll('#tab-customers .tap-row[data-id]').forEach(row=>{
+    const id=row.getAttribute('data-id');
+    const start=e=>{
+      _lpRow=row;
+      row.style.transition='background 0.5s';
+      row.style.background='#ffe0e0';
+      _lpTimer=setTimeout(()=>{
+        row.style.background='';row.style.transition='';
+        deleteOrder(id);
+      },700);
+    };
+    const cancel=()=>{
+      clearTimeout(_lpTimer);_lpTimer=null;
+      if(_lpRow){_lpRow.style.background='';_lpRow.style.transition='';_lpRow=null;}
+    };
+    row.addEventListener('touchstart',start,{passive:true});
+    row.addEventListener('touchend',cancel);
+    row.addEventListener('touchmove',cancel);
+    row.addEventListener('mousedown',start);
+    row.addEventListener('mouseup',cancel);
+    row.addEventListener('mouseleave',cancel);
+  });
+}
 // 删除订单：移除该客户订单，将其已分配的采购量重新分配给其他有缺口的同商品客户
 function deleteOrder(id){
-  if(!confirm('确定删除？'))return;
+  if(!confirm('确定要删除这条订单？\n删除后已采购量将自动归还给其他有缺口的客户。'))return;
   const deleted=orders.find(o=>o.id===id);
-  if(!deleted){return;}
+  if(!deleted)return;
   const product=deleted.product;
-  const releasedPurchased=deleted.purchased; // 删除后会释放的"已采购"名额
+  const releasedPurchased=deleted.purchased;
   orders=orders.filter(o=>o.id!==id);
-  orders=orders.filter(o=>o.customer!==SYS_CUSTOMER); // 清理旧版遗留系统库存行
-  // 将释放的采购量重新分配给其他有缺口的同商品客户（按现有顺序）
+  orders=orders.filter(o=>o.customer!==SYS_CUSTOMER);
   let remaining=releasedPurchased;
   for(const o of orders){
     if(remaining<=0)break;
     if(o.product!==product||o.customer===SYS_CUSTOMER)continue;
-    const gap=o.qty-o.purchased;
-    if(gap<=0)continue;
-    const give=Math.min(gap,remaining);
-    o.purchased+=give;remaining-=give;
+    const gap=o.qty-o.purchased;if(gap<=0)continue;
+    const give=Math.min(gap,remaining);o.purchased+=give;remaining-=give;
   }
   save(ORDERS_KEY,orders);renderAll();
-  toast('已删除'+(releasedPurchased>0&&remaining<releasedPurchased?'，已将采购量重新分配给其他客户':''));
+  toast('已删除'+(releasedPurchased>0&&remaining<releasedPurchased?'，采购量已重新分配':''));
 }
 function togglePaid(id){
   const order=orders.find(o=>o.id===id);
   if(!order)return;
   order.isPaid=!order.isPaid;
   save(ORDERS_KEY,orders);
-  // 局部更新 DOM 复选框和打印文字，避免全量刷新
-  const cb=document.querySelector('.paid-check[onclick*="'+id+'"]');
-  if(cb)cb.checked=order.isPaid;
-  const printSpan=cb?cb.parentElement.querySelector('.paid-print-text'):null;
-  if(printSpan){printSpan.textContent=order.isPaid?'已付':'未付';printSpan.style.color=order.isPaid?'var(--green)':'var(--secondary)';}
+  // 局部更新复选框和打印文字
+  const cb=document.querySelector('.paid-check[onclick*="\''+id+'\'"]');
+  if(cb){
+    cb.checked=order.isPaid;
+    const printSpan=cb.parentElement.querySelector('.paid-print-text');
+    if(printSpan){printSpan.textContent=order.isPaid?'已付':'未付';printSpan.style.color=order.isPaid?'var(--green)':'var(--secondary)';}
+  }
+  // 实时更新该客户的待付款余额
+  const customer=order.customer;
+  const customerItems=orders.filter(o=>o.customer===customer&&o.customer!==SYS_CUSTOMER);
+  const{balance}=calcCustomerBalance(customer,customerItems);
+  // 找到该客户卡片里的 balance-cell
+  const card=document.querySelector('.card[data-customer="'+CSS.escape(customer)+'"]');
+  if(card){
+    const balCell=card.querySelector('.balance-cell');
+    if(balCell){
+      const balColor=balance>0?'var(--green)':balance<0?'var(--red)':'var(--secondary)';
+      balCell.innerHTML='<span class="balance-label">待付</span> <span class="balance-amt" style="color:'+balColor+'">'+(balance===0?'-':(balance>0?'+':'')+balance.toFixed(2))+'</span>';
+    }
+  }
   toast(order.isPaid?'✅ 已标记收款':'↩️ 已取消收款');
 }
 
@@ -1312,7 +1560,7 @@ function switchTab(tab){
   document.querySelectorAll('.tab').forEach((t,i)=>{t.classList.toggle('active',(tab==='customers'&&i===0)||(tab==='products'&&i===1));});
   document.getElementById('tab-customers').classList.toggle('active',tab==='customers');
   document.getElementById('tab-products').classList.toggle('active',tab==='products');
-  clearSearch(); // 切换 Tab 时重置搜索
+  clearSearch();
   resetCustomerFilter();
 }
 
@@ -1435,7 +1683,141 @@ function confirmAllocation(){
 }
 
 // ═══════════════════════════════════════════════════════
-// 实时输入提示（订单输入框 & 采购入库输入框）
+// 商品汇总：修改已采数量
+// 减少时：从客户订单按最近分配顺序（逆序）扣除 purchased
+// 增加时：按正序分配给有缺口的客户
+// ═══════════════════════════════════════════════════════
+let editingPurchasedCtx=null; // {product, location}
+function openEditPurchasedModal(product, location, _unused){
+  const currentTotal=getTotalPurchased(product);
+  editingPurchasedCtx={product, location};
+  document.getElementById('edit-purchased-title').textContent='修改已采数量';
+  document.getElementById('edit-purchased-hint').textContent=
+    '「'+product+'」'+(location&&location!=='__stock__'?'@'+location:'')+'　当前入库总量：'+currentTotal;
+  const inp=document.getElementById('input-edit-purchased');
+  inp.value=currentTotal;inp.min='0';inp.removeAttribute('max');
+  document.getElementById('modal-edit-purchased').classList.add('show');
+  requestAnimationFrame(()=>requestAnimationFrame(()=>{inp.focus();inp.select();}));
+}
+function closeEditPurchasedModal(){
+  document.getElementById('modal-edit-purchased').classList.remove('show');
+  editingPurchasedCtx=null;
+}
+function confirmEditPurchased(){
+  if(!editingPurchasedCtx)return;
+  const{product,location}=editingPurchasedCtx;
+  const newVal=parseInt(document.getElementById('input-edit-purchased').value,10);
+  if(isNaN(newVal)||newVal<0){toast('请输入有效数量（≥0）');return;}
+
+  const currentTotal=getTotalPurchased(product); // 当前 purchaseLogs 总量
+  const diff=newVal-currentTotal;
+  if(diff===0){closeEditPurchasedModal();return;}
+
+  const price=getEffectivePrice(product);
+
+  if(diff>0){
+    // 增加入库量：追加一条 purchaseLog
+    purchaseLogs.push({id:genId(),product,qty:diff,unitPrice:price,totalCost:diff*price,location:location==='__stock__'?'':location,timestamp:Date.now()});
+  }else{
+    // 减少入库量：逆序从 purchaseLogs 里扣减 qty
+    let toSub=-diff;
+    for(let i=purchaseLogs.length-1;i>=0&&toSub>0;i--){
+      const log=purchaseLogs[i];if(log.product!==product)continue;
+      const take=Math.min(log.qty,toSub);log.qty-=take;log.totalCost=log.qty*log.unitPrice;toSub-=take;
+    }
+    purchaseLogs=purchaseLogs.filter(l=>l.qty>0);
+  }
+
+  // 重新分配 orders[].purchased：按顺序满足客户，超出的进系统库存
+  const newTotal=getTotalPurchased(product);
+  const productOrders=orders.filter(o=>o.customer!==SYS_CUSTOMER&&o.product===product);
+  let pool=newTotal;
+  for(const o of productOrders){
+    const give=Math.min(o.qty,pool);
+    o.purchased=give;
+    pool=Math.max(0,pool-give);
+  }
+
+  save(ORDERS_KEY,orders);save(LOGS_KEY,purchaseLogs);renderAll();closeEditPurchasedModal();
+  toast('✅ '+product+' 已采数量已更新为 '+newVal+'，花费已同步');
+}
+
+// ═══════════════════════════════════════════════════════
+// 商品汇总：修改采购单价
+// ═══════════════════════════════════════════════════════
+let editingProductPriceCtx=null;
+function openEditProductPriceModal(product){
+  editingProductPriceCtx=product;
+  document.getElementById('edit-product-price-title').textContent='修改采购单价';
+  document.getElementById('edit-product-price-hint').textContent='「'+product+'」';
+  const inp=document.getElementById('input-edit-product-price');
+  const cur=getLatestPrice(product);
+  inp.value=cur>0?cur:'';
+  document.getElementById('modal-edit-product-price').classList.add('show');
+  requestAnimationFrame(()=>requestAnimationFrame(()=>{inp.focus();inp.select();}));
+}
+function closeEditProductPriceModal(){
+  document.getElementById('modal-edit-product-price').classList.remove('show');
+  editingProductPriceCtx=null;
+}
+function confirmEditProductPrice(){
+  if(!editingProductPriceCtx)return;
+  const product=editingProductPriceCtx;
+  const val=parseFloat(document.getElementById('input-edit-product-price').value);
+  if(isNaN(val)||val<0){toast('请输入有效单价（≥0）');return;}
+  // 更新 productMeta（作为单价权威来源，renderFinance 用此计算花费）
+  updateProductMeta(product,'',val>0?val:0);
+  // 同步更新 purchaseLogs 中该商品所有记录的单价（保持流水一致）
+  for(const log of purchaseLogs){
+    if(log.product===product){log.unitPrice=val;log.totalCost=log.qty*val;}
+  }
+  save(LOGS_KEY,purchaseLogs);renderAll();closeEditProductPriceModal();
+  toast('✅ '+product+' 单价已更新为 ¥'+val.toFixed(2));
+}
+
+// ═══════════════════════════════════════════════════════
+// 备注 Modal
+// ═══════════════════════════════════════════════════════
+let editingNoteId=null;
+function openNoteModal(orderId){
+  const order=orders.find(o=>o.id===orderId);if(!order)return;
+  editingNoteId=orderId;
+  document.getElementById('note-modal-sub').textContent=order.customer+' — '+order.product;
+  document.getElementById('input-note').value=order.note||'';
+  document.getElementById('modal-note').classList.add('show');
+  requestAnimationFrame(()=>{requestAnimationFrame(()=>{document.getElementById('input-note').focus();});});
+}
+function closeNoteModal(){document.getElementById('modal-note').classList.remove('show');editingNoteId=null;}
+function confirmNote(){
+  if(!editingNoteId)return;
+  const order=orders.find(o=>o.id===editingNoteId);if(!order)return;
+  order.note=document.getElementById('input-note').value.trim();
+  save(ORDERS_KEY,orders);renderCustomers();closeNoteModal();
+  toast(order.note?'📝 备注已保存':'备注已清除');
+}
+
+// ═══════════════════════════════════════════════════════
+// 预付款 Modal
+// ═══════════════════════════════════════════════════════
+let editingPrepayCustomer=null;
+function openPrepayModal(customer){
+  editingPrepayCustomer=customer;
+  document.getElementById('prepay-modal-sub').textContent='👤 '+customer;
+  document.getElementById('input-prepay').value=prepayments[customer]||0;
+  document.getElementById('modal-prepay').classList.add('show');
+  requestAnimationFrame(()=>{requestAnimationFrame(()=>{const i=document.getElementById('input-prepay');i.focus();i.select();});});
+}
+function closePrepayModal(){document.getElementById('modal-prepay').classList.remove('show');editingPrepayCustomer=null;}
+function confirmPrepay(){
+  if(!editingPrepayCustomer)return;
+  const val=parseFloat(document.getElementById('input-prepay').value)||0;
+  if(val<0){toast('预付款不能为负数');return;}
+  prepayments[editingPrepayCustomer]=val;
+  save(PREPAY_KEY,prepayments);renderCustomers();closePrepayModal();
+  toast('✅ 已付款已更新为 ¥'+val.toFixed(2));
+}
+
+// ═══════════════════════════════════════════════════════
 // ═══════════════════════════════════════════════════════
 function makeHintHTML(steps, activeIdx){
   // steps: [{label, icon}], activeIdx: 当前正在输入的是第几个（0-based）
@@ -1486,13 +1868,16 @@ function updateStockHint(val){
 // 全局事件
 // ═══════════════════════════════════════════════════════
 document.querySelectorAll('.modal-overlay').forEach(ov=>{
-  ov.addEventListener('click',function(e){if(e.target===this){this.classList.remove('show');pendingAlloc=null;editingOrderId=null;editingField=null;}});
+  ov.addEventListener('click',function(e){if(e.target===this){this.classList.remove('show');pendingAlloc=null;editingOrderId=null;editingField=null;editingNoteId=null;editingPrepayCustomer=null;editingPurchasedCtx=null;editingProductPriceCtx=null;}});
 });
 document.getElementById('input-raw-order').addEventListener('keydown',function(e){if(e.key==='Enter')parseAndReview();});
 document.getElementById('input-raw-stock').addEventListener('keydown',function(e){if(e.key==='Enter')previewAllocation();});
 document.getElementById('input-confirm-qty').addEventListener('keydown',function(e){if(e.key==='Enter')confirmAddOrder();});
 document.getElementById('input-edit-price').addEventListener('keydown',function(e){if(e.key==='Enter')confirmPriceEdit();});
 document.getElementById('input-edit-field').addEventListener('keydown',function(e){if(e.key==='Enter')confirmEditField();});
+document.getElementById('input-prepay').addEventListener('keydown',function(e){if(e.key==='Enter')confirmPrepay();});
+document.getElementById('input-edit-purchased').addEventListener('keydown',function(e){if(e.key==='Enter')confirmEditPurchased();});
+document.getElementById('input-edit-product-price').addEventListener('keydown',function(e){if(e.key==='Enter')confirmEditProductPrice();});
 // 搜索事件：IME 组合输入防抖 + Enter 搜索 + 实时过滤
 document.getElementById('searchInput').addEventListener('compositionstart',function(){isComposing=true;});
 document.getElementById('searchInput').addEventListener('compositionend',function(){
