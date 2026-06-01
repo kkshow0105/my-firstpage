@@ -39,10 +39,8 @@ body{
   padding-top:var(--safe-top);
   background:#ffffff;box-shadow:0 2px 8px rgba(0,0,0,0.08);
 }
-.header{padding:12px 16px 8px}
-.header h1{font-size:22px;font-weight:700;letter-spacing:-0.3px;text-align:center}
 
-.tabs{display:flex;align-items:center;gap:8px;margin:0 16px 10px}
+.tabs{display:flex;align-items:center;gap:8px;margin:10px 16px 10px}
 .tabs-inner{flex:1;display:flex;background:var(--separator);border-radius:10px;padding:2px}
 .tab{
   flex:1;text-align:center;padding:8px 0;font-size:14px;font-weight:600;
@@ -582,7 +580,6 @@ tr.sys-stock td{color:#856404}
 
 <!-- ═══════════ 悬浮吸顶 ═══════════ -->
 <div class="top-bar">
-  <div class="header"><h1>📒 双表记账</h1></div>
   <div class="tabs">
     <div class="tabs-inner">
       <button class="tab active" onclick="switchTab('customers')">👤 客户订单</button>
@@ -843,7 +840,7 @@ function save(key,data){localStorage.setItem(key,JSON.stringify(data))}
 let orders=load(ORDERS_KEY);
 let purchaseLogs=load(LOGS_KEY);
 let productMeta=load(META_KEY);
-if(!productMeta||typeof productMeta!=='object')productMeta={};
+if(!productMeta||typeof productMeta!=='object'||Array.isArray(productMeta))productMeta={};
 let prepayments=load(PREPAY_KEY);
 if(!prepayments||typeof prepayments!=='object'||Array.isArray(prepayments))prepayments={};
 // prepayments: { [customerName]: amount }
