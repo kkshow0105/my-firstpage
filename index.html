@@ -242,21 +242,20 @@ tr.row-done{background:#f5fff7}
 .summary-chip .lbl{font-size:11px;color:var(--secondary);margin-top:2px}
 .summary-chip.warn .num{color:var(--red)}
 
-/* Customer card header with prepay */
+/* Customer card header with add-order button */
 .customer-card-header{
   display:flex;align-items:center;justify-content:space-between;
   padding:12px 16px 10px;font-size:15px;color:var(--text);font-weight:700;
 }
 .cust-icon{font-size:16px}
-.prepay-badge{
+.btn-add-for-customer{
   display:flex;align-items:center;gap:4px;
-  font-size:12px;font-weight:600;color:var(--secondary);
-  background:#f2f2f7;border-radius:20px;padding:4px 10px;
+  font-size:12px;font-weight:700;color:var(--blue);
+  background:#e9f0ff;border:none;border-radius:20px;padding:6px 12px;
   cursor:pointer;transition:background 0.15s;-webkit-tap-highlight-color:transparent;
   white-space:nowrap;
 }
-.prepay-badge:active{background:#e5e5ea}
-.prepay-amt{color:var(--blue);font-weight:700}
+.btn-add-for-customer:active{background:#d6e4ff}
 
 /* Balance in subtotal row */
 .balance-label{font-size:10px;color:var(--secondary);font-weight:600}
@@ -274,8 +273,23 @@ tr.row-done{background:#f5fff7}
 .btn-note:active{background:#f0f0f5}
 .btn-note-active{background:#fff3e0!important}
 
-/* Print-only rows */
-.customer-prepay-print{display:none}
+/* 自动补齐下拉列表 */
+.autocomplete-list{
+  position:absolute;left:0;right:0;top:calc(100% + 4px);z-index:50;
+  background:var(--card-bg);border-radius:12px;
+  box-shadow:0 4px 16px rgba(0,0,0,0.12);
+  max-height:180px;overflow-y:auto;
+  border:1px solid var(--separator);
+}
+.autocomplete-item{
+  padding:10px 14px;font-size:14px;color:var(--text);
+  cursor:pointer;border-bottom:0.5px solid var(--separator);
+  -webkit-tap-highlight-color:transparent;
+  display:flex;align-items:center;gap:6px;
+}
+.autocomplete-item:last-child{border-bottom:none}
+.autocomplete-item:active{background:#f0f0f5}
+.autocomplete-item .ac-icon{font-size:13px;opacity:0.6}
 
 /* Note preview in table cell */
 .note-preview{
@@ -530,7 +544,7 @@ tr.sys-stock td{color:#856404}
   /* 打印：隐藏地点列、按钮类 UI */
   .c-loc{display:none!important}
   .btn-note{display:none!important}
-  .prepay-badge{display:none!important}
+  .btn-add-for-customer{display:none!important}
   /* 备注内容：打印时在商品名下方显示 */
   .note-preview{display:block!important;font-size:9px;color:#b05000}
 
@@ -652,9 +666,10 @@ tr.sys-stock td{color:#856404}
     <div class="modal-step active" id="add-step1">
       <h2>新建订单</h2>
       <p class="modal-hint">格式：<b>客户 商品 数量 [售价] [地点]</b><br>例：张三 止咳贴 2 35 盒马</p>
-      <div class="form-group">
+      <div class="form-group" style="position:relative">
         <div id="order-input-hint" class="input-hint-bar" style="display:none"></div>
-        <input type="text" id="input-raw-order" placeholder="张三 止咳贴 2 35 盒马" autocomplete="off" oninput="updateOrderHint(this.value)">
+        <input type="text" id="input-raw-order" placeholder="张三 止咳贴 2 35 盒马" autocomplete="off" oninput="updateOrderHint(this.value);updateOrderAutocomplete(this)" onblur="setTimeout(hideOrderAutocomplete,150)">
+        <div id="order-autocomplete-list" class="autocomplete-list" style="display:none"></div>
       </div>
       <div class="btn-row">
         <button class="btn btn-ghost" onclick="closeAddModal()">取消</button>
@@ -668,7 +683,7 @@ tr.sys-stock td{color:#856404}
       <div class="form-group"><label>商品名称</label><input type="text" id="input-confirm-product" autocomplete="off"></div>
       <div class="form-group"><label>数量</label><input type="number" id="input-confirm-qty" min="1" inputmode="numeric"></div>
       <div class="form-group"><label>售价（单价 · 元）</label><input type="number" id="input-confirm-price" placeholder="该客户的单价（可选）" min="0" step="0.01" inputmode="decimal"></div>
-      <div class="form-group">
+      <div class="form-group" style="position:relative">
         <label>采购地点 <span class="auto-fill-hint" id="auto-fill-badge" style="display:none">📍 自动补齐</span></label>
         <input type="text" id="input-confirm-location" placeholder="例如：盒马（可选）" autocomplete="off">
       </div>
@@ -710,11 +725,10 @@ tr.sys-stock td{color:#856404}
 <div class="modal-overlay" id="modal-export">
   <div class="modal-sheet">
     <h2>📥 导出备份数据</h2>
-    <p class="modal-hint">以下为全部数据的 JSON 文本<br>点击复制后粘贴到备忘录或微信保存</p>
-    <div class="json-preview" id="export-json-text"></div>
+    <p class="modal-hint">点击下方按钮，将全部数据导出为 JSON 文件<br>可保存到「文件」App / iCloud Drive，或分享给自己备用</p>
     <div class="btn-row">
-      <button class="btn btn-ghost" onclick="closeExportModal()">关闭</button>
-      <button class="btn btn-primary" onclick="copyBackup()">📋 一键复制备份文本</button>
+      <button class="btn btn-ghost" onclick="closeExportModal()">取消</button>
+      <button class="btn btn-primary" onclick="doExportFile()">💾 导出为文件</button>
     </div>
   </div>
 </div>
@@ -723,11 +737,11 @@ tr.sys-stock td{color:#856404}
 <div class="modal-overlay" id="modal-import">
   <div class="modal-sheet">
     <h2>📤 导入备份数据</h2>
-    <p class="modal-hint">请将之前保存的 JSON 备份文本粘贴到下方</p>
-    <div class="form-group"><textarea id="input-import-json" placeholder="粘贴 JSON 备份数据到此处…"></textarea></div>
+    <p class="modal-hint">选择之前导出的 JSON 备份文件进行恢复<br>当前数据将被覆盖，建议先导出当前数据</p>
+    <input type="file" id="input-import-file" accept=".json,application/json" style="display:none" onchange="handleImportFile(event)">
     <div class="btn-row">
       <button class="btn btn-ghost" onclick="closeImportModal()">取消</button>
-      <button class="btn btn-warn" onclick="confirmImport()">确认导入</button>
+      <button class="btn btn-warn" onclick="document.getElementById('input-import-file').click()">📂 选择备份文件</button>
     </div>
   </div>
 </div>
@@ -792,30 +806,16 @@ tr.sys-stock td{color:#856404}
   </div>
 </div>
 
-<!-- ============ Modal: 预付款 ============ -->
-<div class="modal-overlay" id="modal-prepay">
-  <div class="modal-sheet">
-    <h2>💰 已付款</h2>
-    <p class="modal-hint" id="prepay-modal-sub"></p>
-    <div class="form-group">
-      <input type="number" id="input-prepay" class="edit-modal-input" min="0" step="0.01" inputmode="decimal" placeholder="0">
-    </div>
-    <div class="btn-row">
-      <button class="btn btn-ghost" onclick="closePrepayModal()">取消</button>
-      <button class="btn btn-primary" onclick="confirmPrepay()">确定</button>
-    </div>
-  </div>
-</div>
-
 <!-- ============ Modal: 采购入库 ============ -->
 <div class="modal-overlay" id="modal-stock">
   <div class="modal-sheet">
     <div class="modal-step active" id="stock-step1">
       <h2>📥 采购入库</h2>
       <p class="modal-hint">格式：<b>商品 数量 [单价] [地点]</b><br>例：止咳贴 5 15.5 盒马</p>
-      <div class="form-group">
+      <div class="form-group" style="position:relative">
         <div id="stock-input-hint" class="input-hint-bar" style="display:none"></div>
-        <input type="text" id="input-raw-stock" placeholder="止咳贴 5 15.5 盒马" autocomplete="off" oninput="updateStockHint(this.value)">
+        <input type="text" id="input-raw-stock" placeholder="止咳贴 5 15.5 盒马" autocomplete="off" oninput="updateStockHint(this.value);updateStockAutocomplete(this)" onblur="setTimeout(hideStockAutocomplete,150)">
+        <div id="stock-autocomplete-list" class="autocomplete-list" style="display:none"></div>
       </div>
       <div class="btn-row">
         <button class="btn btn-ghost" onclick="closeStockModal()">取消</button>
@@ -846,19 +846,23 @@ tr.sys-stock td{color:#856404}
 const ORDERS_KEY='dual_table_orders_v6';
 const LOGS_KEY='dual_table_purchase_logs_v6';
 const META_KEY='dual_table_product_meta_v6';
-const PREPAY_KEY='dual_table_prepayments_v6';
 const SYS_CUSTOMER='【系统库存】';
 
 function load(key){try{const r=localStorage.getItem(key);return r?JSON.parse(r):[]}catch{return[]}}
-function save(key,data){localStorage.setItem(key,JSON.stringify(data))}
+function save(key,data){
+  try{
+    localStorage.setItem(key,JSON.stringify(data));
+    return true;
+  }catch(err){
+    toast('保存失败：浏览器存储空间不足，请先导出备份');
+    return false;
+  }
+}
 
 let orders=load(ORDERS_KEY);
 let purchaseLogs=load(LOGS_KEY);
 let productMeta=load(META_KEY);
 if(!productMeta||typeof productMeta!=='object'||Array.isArray(productMeta))productMeta={};
-let prepayments=load(PREPAY_KEY);
-if(!prepayments||typeof prepayments!=='object'||Array.isArray(prepayments))prepayments={};
-// prepayments: { [customerName]: amount }
 
 // ── v5 → v6 数据迁移（防止键名升级导致数据"消失"）──
 if(orders.length===0&&purchaseLogs.length===0&&Object.keys(productMeta).length===0){
@@ -905,7 +909,9 @@ function updateProductMeta(product,location,price){
 
 function genId(){return Date.now().toString(36)+Math.random().toString(36).slice(2,7)}
 function esc(s){const d=document.createElement('div');d.textContent=s;return d.innerHTML}
+function escAttr(s){return esc(String(s)).replace(/"/g,'&quot;').replace(/'/g,'&#39;')}
 function escJs(s){return s.replace(/\\/g,'\\\\').replace(/'/g,"\\'")}
+function escInlineArg(s){return escAttr(escJs(String(s)))}
 function toast(msg){
   const el=document.getElementById('toast');el.textContent=msg;el.classList.add('show');
   clearTimeout(el._timeout);el._timeout=setTimeout(()=>el.classList.remove('show'),2000);
@@ -1015,48 +1021,58 @@ function filterProducts(query){
 }
 
 // ═══════════════════════════════════════════════════════
-// 导出 / 导入备份
+// 导出 / 导入备份（JSON 文件）
 // ═══════════════════════════════════════════════════════
-function openExportModal(){
-  closeMenu();
-  const backup={version:1,exportedAt:new Date().toISOString(),orders,purchaseLogs,productMeta,prepayments};
-  document.getElementById('export-json-text').textContent=JSON.stringify(backup,null,2);
-  document.getElementById('modal-export').classList.add('show');
-}
+function openExportModal(){closeMenu();document.getElementById('modal-export').classList.add('show');}
 function closeExportModal(){document.getElementById('modal-export').classList.remove('show');}
-function copyBackup(){
-  const text=document.getElementById('export-json-text').textContent;
-  if(navigator.clipboard&&navigator.clipboard.writeText){navigator.clipboard.writeText(text).then(()=>toast('✅ 备份数据已复制到剪切板')).catch(()=>fallbackCopy(text));}
-  else fallbackCopy(text);
+function doExportFile(){
+  const backup={version:2,exportedAt:new Date().toISOString(),orders,purchaseLogs,productMeta};
+  const text=JSON.stringify(backup,null,2);
+  const blob=new Blob([text],{type:'application/json'});
+  const url=URL.createObjectURL(blob);
+  const a=document.createElement('a');
+  const ts=new Date();
+  const pad=n=>String(n).padStart(2,'0');
+  const fname='双表记账备份_'+ts.getFullYear()+pad(ts.getMonth()+1)+pad(ts.getDate())+'_'+pad(ts.getHours())+pad(ts.getMinutes())+'.json';
+  a.href=url;a.download=fname;
+  document.body.appendChild(a);a.click();document.body.removeChild(a);
+  setTimeout(()=>URL.revokeObjectURL(url),1000);
+  closeExportModal();toast('✅ 备份文件已生成，请在分享菜单中保存');
 }
-function fallbackCopy(text){
-  const ta=document.createElement('textarea');ta.value=text;ta.style.position='fixed';ta.style.left='-9999px';
-  document.body.appendChild(ta);ta.select();
-  try{document.execCommand('copy');toast('✅ 备份数据已复制到剪切板')}catch(e){toast('复制失败，请手动全选复制')}
-  document.body.removeChild(ta);
+function openImportModal(){
+  closeMenu();
+  document.getElementById('input-import-file').value='';
+  document.getElementById('modal-import').classList.add('show');
 }
-function openImportModal(){closeMenu();document.getElementById('input-import-json').value='';document.getElementById('modal-import').classList.add('show');requestAnimationFrame(()=>{requestAnimationFrame(()=>{const i=document.getElementById('input-import-json');i.focus();i.click();});});}
-function closeImportModal(){document.getElementById('modal-import').classList.remove('show');}
-function confirmImport(){
-  const raw=document.getElementById('input-import-json').value.trim();
-  if(!raw){toast('请先粘贴备份数据');return;}
-  let data;try{data=JSON.parse(raw);}catch(e){toast('❌ JSON 格式错误，无法解析');return;}
-  if(!data.orders||!Array.isArray(data.orders)){toast('❌ 数据格式不正确：缺少 orders');return;}
-  if(!data.purchaseLogs||!Array.isArray(data.purchaseLogs)){toast('❌ 数据格式不正确：缺少 purchaseLogs');return;}
-  if(!data.productMeta||typeof data.productMeta!=='object'){toast('❌ 数据格式不正确：缺少 productMeta');return;}
-  if(!confirm('确定要导入备份吗？当前数据将被覆盖。'))return;
-  save(ORDERS_KEY,data.orders);save(LOGS_KEY,data.purchaseLogs);save(META_KEY,data.productMeta);
-  if(data.prepayments)save(PREPAY_KEY,data.prepayments);
-  orders=data.orders;purchaseLogs=data.purchaseLogs;productMeta=data.productMeta;
-  prepayments=data.prepayments||{};
-  renderAll();closeImportModal();toast('✅ 备份数据已成功导入并加载');
+function closeImportModal(){
+  document.getElementById('modal-import').classList.remove('show');
+  document.getElementById('input-import-file').value='';
+}
+function handleImportFile(event){
+  const file=event.target.files&&event.target.files[0];
+  if(!file)return;
+  const reader=new FileReader();
+  reader.onload=function(e){
+    let data;
+    try{data=JSON.parse(e.target.result);}catch(err){toast('❌ 文件格式错误，无法解析为 JSON');event.target.value='';return;}
+    if(!data.orders||!Array.isArray(data.orders)){toast('❌ 数据格式不正确：缺少 orders');event.target.value='';return;}
+    if(!data.purchaseLogs||!Array.isArray(data.purchaseLogs)){toast('❌ 数据格式不正确：缺少 purchaseLogs');event.target.value='';return;}
+    if(!data.productMeta||typeof data.productMeta!=='object'||Array.isArray(data.productMeta)){toast('❌ 数据格式不正确：缺少 productMeta');event.target.value='';return;}
+    if(!confirm('确定要导入「'+file.name+'」吗？\n当前数据将被覆盖。')){event.target.value='';return;}
+    if(!save(ORDERS_KEY,data.orders)||!save(LOGS_KEY,data.purchaseLogs)||!save(META_KEY,data.productMeta)){event.target.value='';return;}
+    orders=data.orders;purchaseLogs=data.purchaseLogs;productMeta=data.productMeta;
+    renderAll();closeImportModal();toast('✅ 备份文件已成功导入并加载');
+    event.target.value='';
+  };
+  reader.onerror=function(){toast('❌ 文件读取失败');event.target.value='';};
+  reader.readAsText(file,'utf-8');
 }
 function clearAllData(){
   closeMenu();
   if(!confirm('⚠️ 确定要清空所有数据吗？\n\n此操作将删除全部订单、采购记录和商品信息，且无法撤销。\n\n建议先导出备份数据。'))return;
   if(!confirm('再次确认：确实要清空所有数据？'))return;
-  orders=[];purchaseLogs=[];productMeta={};prepayments={};
-  save(ORDERS_KEY,orders);save(LOGS_KEY,purchaseLogs);save(META_KEY,productMeta);save(PREPAY_KEY,prepayments);
+  orders=[];purchaseLogs=[];productMeta={};
+  save(ORDERS_KEY,orders);save(LOGS_KEY,purchaseLogs);save(META_KEY,productMeta);
   renderAll();toast('✅ 数据已清空，可开始新行程记账');
 }
 
@@ -1111,7 +1127,7 @@ function allocatePurchase(product,qty,unitPrice,location){
   for(const o of targets){
     if(remaining<=0)break;
     const gap=o.qty-o.purchased;const give=Math.min(gap,remaining);
-    allocated.push({customer:o.customer,product:o.product,allocated:give,gapBefore:gap,gapAfter:gap-give});
+    allocated.push({orderId:o.id,customer:o.customer,product:o.product,allocated:give,gapBefore:gap,gapAfter:gap-give});
     remaining-=give;
   }
   return{allocated,remaining,product,totalQty:qty,unitPrice,location};
@@ -1183,16 +1199,12 @@ function getProductSummaryByLocation(){
 // 渲染：客户订单（6 列：商品 | 数量 | 售价 | 收款 | 已采购 | 备注）
 // ═══════════════════════════════════════════════════════
 function calcCustomerBalance(customer, items){
-  // 已付款（预付款）
-  const prepay=prepayments[customer]||0;
-  // 已收款金额 = 打勾项的 已采购数量 × 售价
-  let paidAmt=0;
+  // 待付款 = 已采购到但尚未点击【收款】的项目合计（已采购数量 × 售价）
+  let unpaidAmt=0;
   for(const it of items){
-    if(it.isPaid) paidAmt+=it.purchased*(it.sellingPrice||0);
+    if(!it.isPaid) unpaidAmt+=it.purchased*(it.sellingPrice||0);
   }
-  // 待付款 = 已付款 - 已收款；正数表示预付有余，负数表示还欠
-  const balance=prepay-paidAmt;
-  return{prepay,paidAmt,balance};
+  return{balance:unpaidAmt};
 }
 function renderCustomers(){
   const container=document.getElementById('customer-table-container');
@@ -1213,15 +1225,13 @@ function renderCustomers(){
     // 合计金额（全部，按订单数量×售价）
     let customerTotal=0;
     for(const it of items)customerTotal+=it.qty*(it.sellingPrice||0);
-    const{prepay,balance}=calcCustomerBalance(customer,items);
+    const{balance}=calcCustomerBalance(customer,items);
 
-    html+='<div class="card" style="margin-bottom:12px" data-customer="'+escJs(customer)+'">';
-    // 卡片头：客户名 + 已付款
+    html+='<div class="card" style="margin-bottom:12px" data-customer="'+escAttr(customer)+'">';
+    // 卡片头：客户名 + 快捷添加订单按钮
     html+='<div class="card-header customer-card-header">';
     html+='<span><span class="cust-icon">👤</span> '+esc(customer)+'</span>';
-    html+='<span class="prepay-badge" onclick="event.stopPropagation();openPrepayModal(\''+escJs(customer)+'\')" title="点击修改已付款">';
-    html+='已付款 <span class="prepay-amt">'+(prepay>0?'¥'+prepay.toFixed(2):'¥0')+'</span>';
-    html+='</span>';
+    html+='<button class="btn-add-for-customer" onclick="event.stopPropagation();openAddModalForCustomer(\''+escInlineArg(customer)+'\')" title="为该客户添加订单">＋ 添加订单</button>';
     html+='</div>';
 
     // 表格
@@ -1242,7 +1252,7 @@ function renderCustomers(){
       html+='<td class="c-price-col" style="font-weight:600;color:'+(sp>0?'var(--text)':'var(--secondary)')+'"><span class="price-clickable" onclick="event.stopPropagation();openPriceModal(\''+item.id+'\')" title="点击修改售价">'+priceStr+'</span></td>';
       html+='<td class="c-paid"><span class="paid-cell"><input type="checkbox" class="paid-check" '+(item.isPaid?'checked':'')+' onclick="event.stopPropagation();togglePaid(\''+item.id+'\')" title="标记已收款"><span class="paid-print-text" style="color:'+(item.isPaid?'var(--green)':'var(--secondary)')+'">'+(item.isPaid?'已付':'未付')+'</span></span></td>';
       html+='<td class="c-prog"><span class="purchased-badge '+badgeClass+'"><span class="status-dot '+gapClass+'"></span>'+item.purchased+'/'+item.qty+'</span></td>';
-      html+='<td class="c-act"><button class="btn-sm btn-note'+(hasNote?' btn-note-active':'')+'" onclick="event.stopPropagation();openNoteModal(\''+item.id+'\')" title="'+(hasNote?esc(item.note):'添加备注')+'">'+(hasNote?'📝':'📄')+'</button></td>';
+      html+='<td class="c-act"><button class="btn-sm btn-note'+(hasNote?' btn-note-active':'')+'" onclick="event.stopPropagation();openNoteModal(\''+item.id+'\')" title="'+(hasNote?escAttr(item.note):'添加备注')+'">'+(hasNote?'📝':'📄')+'</button></td>';
       html+='</tr>';
     }
 
@@ -1252,9 +1262,9 @@ function renderCustomers(){
     html+='<td class="c-price-col" style="color:var(--red)!important;font-size:13px!important;font-weight:700">'+(customerTotal>0?'¥'+customerTotal.toFixed(2):'-')+'</td>';
     html+='<td colspan="3"></td>';
     html+='</tr>';
-    // 待付款单独一行（避免和备注列争宽）
-    const balColor=balance>0?'var(--green)':balance<0?'var(--red)':'var(--secondary)';
-    const balText=balance===0?'-':(balance>0?'+':'')+balance.toFixed(2);
+    // 待付款单独一行：已采购但未收款的金额合计
+    const balColor=balance>0?'var(--red)':'var(--secondary)';
+    const balText=balance>0?'¥'+balance.toFixed(2):'-';
     html+='<tr class="customer-balance-row">';
     html+='<td colspan="4" style="text-align:right;font-size:12px;color:var(--secondary);padding-top:4px!important;padding-bottom:6px!important">待付款</td>';
     html+='<td colspan="2" style="text-align:right;padding-right:6px;padding-top:4px!important;padding-bottom:6px!important">';
@@ -1302,20 +1312,20 @@ function renderProducts(){
       html+='<div><span style="font-size:18px">📍</span> '+esc(loc.location)+'<span style="font-size:12px;color:var(--secondary);margin-left:8px">'+loc.products.length+' 种</span></div>';
       html+='<div style="display:flex;align-items:center;gap:12px"><span style="font-size:12px;color:'+(allDone?'var(--green)':'var(--red)')+'">'+(allDone?'✅ 已齐':'⚠️ 缺口 '+locGap)+'</span><span class="arrow">▶</span></div></div>';
     }
-    html+='<div class="location-body" data-location="'+escJs(loc.location)+'">';
+    html+='<div class="location-body" data-location="'+escAttr(loc.location)+'">';
     if(isStock){
       html+='<table class="table-dense"><thead><tr><th class="col-prod">商品</th><th class="col-num">库存量</th><th class="col-price">单价</th><th class="col-gap"></th><th class="col-act"></th></tr></thead><tbody>';
       for(const p of loc.products){
         const price=getEffectivePrice(p.product);
         const priceStr=price>0?'¥'+price.toFixed(2):'<span style="color:#ccc">-</span>';
-        const prodJs=escJs(p.product);
+        const prodJs=escInlineArg(p.product);
         const pNote=(getProductMeta(p.product).note||'').trim();
         html+='<tr class="row-done">';
         html+='<td style="font-weight:600">'+esc(p.product)+'</td>';
         html+='<td class="col-num"><span class="cell-clickable prod-purchased-click" onclick="event.stopPropagation();openEditPurchasedModal(\''+prodJs+'\',\'__stock__\','+p.total+')" title="点击修改库存量" style="color:var(--orange);font-weight:700">'+p.total+'</span></td>';
         html+='<td class="col-price" style="font-size:11px;font-weight:600"><span class="cell-clickable prod-price-click" onclick="event.stopPropagation();openEditProductPriceModal(\''+prodJs+'\')" title="点击修改单价">'+priceStr+'</span></td>';
         html+='<td class="col-gap"><span style="color:var(--orange);font-size:11px">库存</span></td>';
-        html+='<td class="col-act"><button class="btn-sm btn-note'+(pNote?' btn-note-active':'')+'" onclick="event.stopPropagation();openProductNoteModal(\''+prodJs+'\')" title="'+(pNote?esc(pNote):'添加备注')+'">'+(pNote?'📝':'📄')+'</button></td>';
+        html+='<td class="col-act"><button class="btn-sm btn-note'+(pNote?' btn-note-active':'')+'" onclick="event.stopPropagation();openProductNoteModal(\''+prodJs+'\')" title="'+(pNote?escAttr(pNote):'添加备注')+'">'+(pNote?'📝':'📄')+'</button></td>';
         html+='</tr>';
       }
       html+='</tbody></table></div></div>';
@@ -1325,17 +1335,17 @@ function renderProducts(){
         const gap=p.total-p.purchased;const rowClass=gap>0?'row-urgent':'row-done';
         const price=getEffectivePrice(p.product);
         const priceStr=price>0?'¥'+price.toFixed(2):'<span style="color:#ccc">-</span>';
-        const prodJs=escJs(p.product);
+        const prodJs=escInlineArg(p.product);
         html+='<tr class="'+rowClass+'">';
         html+='<td style="font-weight:600">'+esc(p.product)+'</td>';
         html+='<td class="col-num">'+p.total+'</td>';
         // 已采 — 可点击修改
-        html+='<td class="col-num"><span class="cell-clickable prod-purchased-click" onclick="event.stopPropagation();openEditPurchasedModal(\''+prodJs+'\',\''+escJs(loc.location)+'\','+p.purchased+')" title="点击修改已采数量">'+p.purchased+'</span></td>';
+        html+='<td class="col-num"><span class="cell-clickable prod-purchased-click" onclick="event.stopPropagation();openEditPurchasedModal(\''+prodJs+'\',\''+escInlineArg(loc.location)+'\','+p.purchased+')" title="点击修改已采数量">'+p.purchased+'</span></td>';
         // 单价 — 可点击修改
         html+='<td class="col-price" style="font-size:11px;font-weight:600"><span class="cell-clickable prod-price-click" onclick="event.stopPropagation();openEditProductPriceModal(\''+prodJs+'\')" title="点击修改单价">'+(price>0?'¥'+price.toFixed(2):'<span style="color:#ccc">-</span>')+'</span></td>';
         html+='<td class="col-gap">'+(gap>0?'<span class="gap urgent">'+gap+'</span>':'<span class="gap done">✓</span>')+'</td>';
         const pNote=(getProductMeta(p.product).note||'').trim();
-        html+='<td class="col-act"><button class="btn-sm btn-note'+(pNote?' btn-note-active':'')+'" onclick="event.stopPropagation();openProductNoteModal(\''+prodJs+'\')" title="'+(pNote?esc(pNote):'添加备注')+'">'+(pNote?'📝':'📄')+'</button></td>';
+        html+='<td class="col-act"><button class="btn-sm btn-note'+(pNote?' btn-note-active':'')+'" onclick="event.stopPropagation();openProductNoteModal(\''+prodJs+'\')" title="'+(pNote?escAttr(pNote):'添加备注')+'">'+(pNote?'📝':'📄')+'</button></td>';
         html+='</tr>';
       }
       html+='</tbody></table></div></div>';
@@ -1486,19 +1496,20 @@ function togglePaid(id){
     const printSpan=cb.parentElement.querySelector('.paid-print-text');
     if(printSpan){printSpan.textContent=order.isPaid?'已付':'未付';printSpan.style.color=order.isPaid?'var(--green)':'var(--secondary)';}
   }
-  // 实时更新该客户的待付款余额
+  // 实时更新该客户的待付款余额（已采购未收款金额合计）
   const customer=order.customer;
   const customerItems=orders.filter(o=>o.customer===customer&&o.customer!==SYS_CUSTOMER);
   const{balance}=calcCustomerBalance(customer,customerItems);
-  const card=document.querySelector('.card[data-customer="'+CSS.escape(customer)+'"]');
+  const card=Array.from(document.querySelectorAll('#tab-customers .card'))
+    .find(c=>c.getAttribute('data-customer')===customer);
   if(card){
     const balRow=card.querySelector('.customer-balance-row');
     if(balRow){
       const amtCell=balRow.querySelector('td:last-child span');
       if(amtCell){
-        const balColor=balance>0?'var(--green)':balance<0?'var(--red)':'var(--secondary)';
+        const balColor=balance>0?'var(--red)':'var(--secondary)';
         amtCell.style.color=balColor;
-        amtCell.textContent=balance===0?'-':(balance>0?'+':'')+balance.toFixed(2);
+        amtCell.textContent=balance>0?'¥'+balance.toFixed(2):'-';
       }
     }
   }
@@ -1627,7 +1638,17 @@ function switchTab(tab){
 // 添加订单 Modal
 // ═══════════════════════════════════════════════════════
 function openAddModal(){document.getElementById('modal-add').classList.add('show');showAddStep(1);document.getElementById('input-raw-order').value='';document.getElementById('order-input-hint').style.display='none';requestAnimationFrame(()=>{requestAnimationFrame(()=>{const i=document.getElementById('input-raw-order');i.focus();i.click();});});}
-function closeAddModal(){document.getElementById('modal-add').classList.remove('show');document.getElementById('order-input-hint').style.display='none';}
+function openAddModalForCustomer(customer){
+  document.getElementById('modal-add').classList.add('show');showAddStep(1);
+  const inp=document.getElementById('input-raw-order');
+  inp.value=customer+' ';
+  updateOrderHint(inp.value);
+  requestAnimationFrame(()=>{requestAnimationFrame(()=>{
+    inp.focus();
+    inp.setSelectionRange(inp.value.length,inp.value.length);
+  });});
+}
+function closeAddModal(){document.getElementById('modal-add').classList.remove('show');document.getElementById('order-input-hint').style.display='none';hideOrderAutocomplete();}
 function showAddStep(n){document.getElementById('add-step1').classList.toggle('active',n===1);document.getElementById('add-step2').classList.toggle('active',n===2);}
 function parseAndReview(){
   const raw=document.getElementById('input-raw-order').value;
@@ -1661,8 +1682,8 @@ function confirmAddOrder(){
 // ═══════════════════════════════════════════════════════
 // 采购入库 Modal
 // ═══════════════════════════════════════════════════════
-function openStockModal(){document.getElementById('modal-stock').classList.add('show');showStockStep(1);document.getElementById('input-raw-stock').value='';document.getElementById('stock-input-hint').style.display='none';requestAnimationFrame(()=>{requestAnimationFrame(()=>{const i=document.getElementById('input-raw-stock');i.focus();i.click();});});}
-function closeStockModal(){document.getElementById('modal-stock').classList.remove('show');pendingAlloc=null;document.getElementById('stock-input-hint').style.display='none';}
+function openStockModal(){document.getElementById('modal-stock').classList.add('show');showStockStep(1);document.getElementById('input-raw-stock').value='';document.getElementById('stock-input-hint').style.display='none';hideStockAutocomplete();requestAnimationFrame(()=>{requestAnimationFrame(()=>{const i=document.getElementById('input-raw-stock');i.focus();i.click();});});}
+function closeStockModal(){document.getElementById('modal-stock').classList.remove('show');pendingAlloc=null;document.getElementById('stock-input-hint').style.display='none';hideStockAutocomplete();}
 function showStockStep(n){document.getElementById('stock-step1').classList.toggle('active',n===1);document.getElementById('stock-step2').classList.toggle('active',n===2);}
 function previewAllocation(){
   const raw=document.getElementById('input-raw-stock').value;const p=parseStockInput(raw);
@@ -1681,7 +1702,7 @@ function previewAllocation(){
   const totalGapAfter=result.allocated.reduce((s,a)=>s+a.gapAfter,0)+
     // 还有没进入 allocated 的客户（因为入库量不够，根本没轮到）
     orders.filter(o=>o.customer!==SYS_CUSTOMER&&o.product===result.product)
-      .filter(o=>!result.allocated.find(a=>a.customer===o.customer))
+      .filter(o=>!result.allocated.find(a=>a.orderId===o.id))
       .reduce((s,o)=>s+Math.max(0,o.qty-o.purchased),0);
 
   // 构建客户分配列表
@@ -1697,7 +1718,7 @@ function previewAllocation(){
     }
     // 完全未被分配到的客户（入库量耗尽）
     const unserved=orders.filter(o=>o.customer!==SYS_CUSTOMER&&o.product===result.product&&o.purchased<o.qty)
-      .filter(o=>!result.allocated.find(a=>a.customer===o.customer));
+      .filter(o=>!result.allocated.find(a=>a.orderId===o.id));
     for(const o of unserved){
       const gap=o.qty-o.purchased;
       listHtml+='<div class="alloc-item"><span class="cust">👤 '+esc(o.customer)+'</span>'+
@@ -1724,13 +1745,12 @@ function previewAllocation(){
   document.getElementById('btn-confirm-alloc').style.display='';
   showStockStep(2);
 }
-function backToStockStep1(){pendingAlloc=null;showStockStep(1);document.getElementById('input-raw-stock').focus();}
+function backToStockStep1(){pendingAlloc=null;showStockStep(1);hideStockAutocomplete();document.getElementById('input-raw-stock').focus();}
 function confirmAllocation(){
   if(!pendingAlloc)return;
   const{allocated,remaining,product,totalQty,unitPrice,location}=pendingAlloc;
   for(const a of allocated){
-    // 按客户名+商品名找第一条有缺口的订单（与 allocatePurchase 保持一致）
-    const t=orders.find(o=>o.customer===a.customer&&o.product===product&&o.customer!==SYS_CUSTOMER&&o.purchased<o.qty);
+    const t=orders.find(o=>o.id===a.orderId&&o.product===product&&o.customer!==SYS_CUSTOMER&&o.purchased<o.qty);
     if(t)t.purchased+=a.allocated;
   }
   // 不再创建系统库存 order 行；剩余库存通过 getCurrentStock() = purchaseLogs - allocated 自动计算
@@ -1892,24 +1912,117 @@ function confirmNote(){
 }
 
 // ═══════════════════════════════════════════════════════
-// 预付款 Modal
+// 自动补齐：客户名称 / 商品名称
 // ═══════════════════════════════════════════════════════
-let editingPrepayCustomer=null;
-function openPrepayModal(customer){
-  editingPrepayCustomer=customer;
-  document.getElementById('prepay-modal-sub').textContent='👤 '+customer;
-  document.getElementById('input-prepay').value=prepayments[customer]||0;
-  document.getElementById('modal-prepay').classList.add('show');
-  requestAnimationFrame(()=>{requestAnimationFrame(()=>{const i=document.getElementById('input-prepay');i.focus();i.select();});});
+function getKnownCustomers(){
+  const set=new Set();
+  for(const o of orders){if(o.customer&&o.customer!==SYS_CUSTOMER)set.add(o.customer);}
+  return Array.from(set).sort((a,b)=>a.localeCompare(b,'zh'));
 }
-function closePrepayModal(){document.getElementById('modal-prepay').classList.remove('show');editingPrepayCustomer=null;}
-function confirmPrepay(){
-  if(!editingPrepayCustomer)return;
-  const val=parseFloat(document.getElementById('input-prepay').value)||0;
-  if(val<0){toast('预付款不能为负数');return;}
-  prepayments[editingPrepayCustomer]=val;
-  save(PREPAY_KEY,prepayments);renderCustomers();closePrepayModal();
-  toast('✅ 已付款已更新为 ¥'+val.toFixed(2));
+function getKnownProducts(){
+  const set=new Set();
+  for(const o of orders){if(o.product&&o.customer!==SYS_CUSTOMER)set.add(o.product);}
+  for(const l of purchaseLogs){if(l.product)set.add(l.product);}
+  return Array.from(set).sort((a,b)=>a.localeCompare(b,'zh'));
+}
+function getKnownOrderProducts(){
+  const set=new Set();
+  for(const o of orders){if(o.product&&o.customer!==SYS_CUSTOMER)set.add(o.product);}
+  for(const l of purchaseLogs){if(l.product)set.add(l.product);}
+  return Array.from(set).sort((a,b)=>a.localeCompare(b,'zh'));
+}
+// 解析输入框当前光标所在字段：客户(第1词) / 商品(第2词，且数字未出现前)
+function getCurrentFieldInfo(input){
+  const val=input.value;
+  const caret=input.selectionStart!=null?input.selectionStart:val.length;
+  const before=val.slice(0,caret);
+  const parts=before.split(/\s+/);
+  const wordCount=parts.length;
+  const currentWord=parts[parts.length-1];
+  const allParts=val.trim().split(/\s+/);
+  const numIdxs=[];for(let i=0;i<allParts.length;i++){if(/^\d+(\.\d+)?$/.test(allParts[i]))numIdxs.push(i);}
+  const firstNumIdx=numIdxs.length>0?numIdxs[0]:-1;
+  let fieldType=null;
+  if(wordCount===1){
+    fieldType='customer';
+  }else if(wordCount===2&&(firstNumIdx===-1||1<firstNumIdx)){
+    fieldType='product';
+  }
+  return{fieldType,currentWord,wordStart:before.length-currentWord.length};
+}
+function updateOrderAutocomplete(input){
+  const info=getCurrentFieldInfo(input);
+  const listEl=document.getElementById('order-autocomplete-list');
+  if(!info.fieldType||!info.currentWord){listEl.style.display='none';return;}
+  const pool=info.fieldType==='customer'?getKnownCustomers():getKnownProducts();
+  const q=info.currentWord.toLowerCase();
+  const matches=pool.filter(p=>p.toLowerCase().includes(q));
+  if(matches.length===0){listEl.style.display='none';return;}
+  const icon=info.fieldType==='customer'?'👤':'🏷️';
+  listEl.innerHTML=matches.slice(0,8).map(m=>
+    '<div class="autocomplete-item" onmousedown="event.preventDefault();selectOrderAutocomplete(\''+escInlineArg(m)+'\')"><span class="ac-icon">'+icon+'</span>'+esc(m)+'</div>'
+  ).join('');
+  listEl.style.display='block';
+}
+function selectOrderAutocomplete(value){
+  const input=document.getElementById('input-raw-order');
+  const info=getCurrentFieldInfo(input);
+  const caret=input.selectionStart!=null?input.selectionStart:input.value.length;
+  const before=input.value.slice(0,info.wordStart);
+  const after=input.value.slice(caret);
+  const newVal=before+value+' '+after.replace(/^\s+/,'');
+  input.value=newVal;
+  const newCaret=(before+value+' ').length;
+  input.focus();
+  input.setSelectionRange(newCaret,newCaret);
+  updateOrderHint(input.value);
+  hideOrderAutocomplete();
+}
+function hideOrderAutocomplete(){
+  const listEl=document.getElementById('order-autocomplete-list');
+  if(listEl)listEl.style.display='none';
+}
+function getStockProductFieldInfo(input){
+  const val=input.value;
+  const caret=input.selectionStart!=null?input.selectionStart:val.length;
+  const before=val.slice(0,caret);
+  const parts=before.split(/\s+/);
+  const wordCount=parts.length;
+  const currentWord=parts[parts.length-1];
+  const wordStart=before.length-currentWord.length;
+  const isProductField=wordCount===1;
+  return{isProductField,currentWord,wordStart};
+}
+function updateStockAutocomplete(input){
+  const info=getStockProductFieldInfo(input);
+  const listEl=document.getElementById('stock-autocomplete-list');
+  if(!listEl)return;
+  if(!info.isProductField||!info.currentWord){listEl.style.display='none';return;}
+  const q=info.currentWord.toLowerCase();
+  const matches=getKnownOrderProducts().filter(p=>p.toLowerCase().includes(q));
+  if(matches.length===0){listEl.style.display='none';return;}
+  listEl.innerHTML=matches.slice(0,8).map(m=>
+    '<div class="autocomplete-item" onmousedown="event.preventDefault();selectStockAutocomplete(\''+escInlineArg(m)+'\')"><span class="ac-icon">🏷️</span>'+esc(m)+'</div>'
+  ).join('');
+  listEl.style.display='block';
+}
+function selectStockAutocomplete(value){
+  const input=document.getElementById('input-raw-stock');
+  const info=getStockProductFieldInfo(input);
+  const caret=input.selectionStart!=null?input.selectionStart:input.value.length;
+  const before=input.value.slice(0,info.wordStart);
+  const after=input.value.slice(caret);
+  const newVal=before+value+' '+after.replace(/^\s+/,'');
+  input.value=newVal;
+  const newCaret=(before+value+' ').length;
+  input.focus();
+  input.setSelectionRange(newCaret,newCaret);
+  updateStockHint(input.value);
+  hideStockAutocomplete();
+}
+function hideStockAutocomplete(){
+  const listEl=document.getElementById('stock-autocomplete-list');
+  if(listEl)listEl.style.display='none';
 }
 
 // ═══════════════════════════════════════════════════════
@@ -1963,14 +2076,13 @@ function updateStockHint(val){
 // 全局事件
 // ═══════════════════════════════════════════════════════
 document.querySelectorAll('.modal-overlay').forEach(ov=>{
-  ov.addEventListener('click',function(e){if(e.target===this){this.classList.remove('show');pendingAlloc=null;editingOrderId=null;editingField=null;editingNoteId=null;editingPrepayCustomer=null;editingPurchasedCtx=null;editingProductPriceCtx=null;editingProductNote=null;}});
+  ov.addEventListener('click',function(e){if(e.target===this){this.classList.remove('show');pendingAlloc=null;editingOrderId=null;editingField=null;editingNoteId=null;editingPurchasedCtx=null;editingProductPriceCtx=null;editingProductNote=null;}});
 });
 document.getElementById('input-raw-order').addEventListener('keydown',function(e){if(e.key==='Enter')parseAndReview();});
 document.getElementById('input-raw-stock').addEventListener('keydown',function(e){if(e.key==='Enter')previewAllocation();});
 document.getElementById('input-confirm-qty').addEventListener('keydown',function(e){if(e.key==='Enter')confirmAddOrder();});
 document.getElementById('input-edit-price').addEventListener('keydown',function(e){if(e.key==='Enter')confirmPriceEdit();});
 document.getElementById('input-edit-field').addEventListener('keydown',function(e){if(e.key==='Enter')confirmEditField();});
-document.getElementById('input-prepay').addEventListener('keydown',function(e){if(e.key==='Enter')confirmPrepay();});
 document.getElementById('input-edit-purchased').addEventListener('keydown',function(e){if(e.key==='Enter')confirmEditPurchased();});
 document.getElementById('input-edit-product-price').addEventListener('keydown',function(e){if(e.key==='Enter')confirmEditProductPrice();});
 // 搜索事件：IME 组合输入防抖 + Enter 搜索 + 实时过滤
