@@ -6,7 +6,7 @@
 //   - 完全离线时从缓存返回，不影响使用
 // ═══════════════════════════════════════════════════════
 
-const CACHE_NAME = 'shuangbiao-v3';
+const CACHE_NAME = 'shuangbiao-v4';
 
 // 需要预缓存的资源（相对于 sw.js 所在目录）
 const PRECACHE_URLS = [
