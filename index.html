@@ -613,6 +613,18 @@ tr.sys-stock td{color:#856404}
   </div>
 </div>
 
+<div id="data-protection" hidden role="alert" class="card" style="margin:16px;padding:16px;border:2px solid var(--red)">
+  <h2 style="font-size:18px">数据异常 / 恢复保护</h2>
+  <p id="data-protection-message" style="white-space:pre-wrap;overflow-wrap:anywhere;margin:12px 0"></p>
+  <div class="btn-row" style="flex-wrap:wrap">
+    <button class="btn btn-ghost" onclick="exportRecoveryRaw()">导出原始恢复资料</button>
+    <button class="btn btn-primary" id="btn-export-snapshot" onclick="exportRecoverySnapshot()">导出操作前完整备份</button>
+    <button class="btn btn-warn" onclick="openImportModal()">选择正常备份恢复</button>
+  </div>
+  <p style="margin-top:12px;font-size:13px">原始恢复资料用于保留损坏内容，不能直接作为正常账本导入。恢复前请先保存下载文件。</p>
+</div>
+
+
 <div class="print-title">📒 双表记账</div>
 
 <!-- Tab 1: 客户订单 -->
@@ -782,7 +794,7 @@ tr.sys-stock td{color:#856404}
 <!-- ============ Modal: 修改商品单价（商品汇总） ============ -->
 <div class="modal-overlay" id="modal-edit-product-price">
   <div class="modal-sheet">
-    <h2 id="edit-product-price-title">修改采购单价</h2>
+    <h2 id="edit-product-price-title">修改默认采购价</h2>
     <p class="modal-hint" id="edit-product-price-hint"></p>
     <div class="form-group">
       <input type="number" id="input-edit-product-price" class="edit-modal-input" min="0" step="0.01" inputmode="decimal" placeholder="0.00">
@@ -852,60 +864,223 @@ const META_KEY='dual_table_product_meta_v6';
 const DATA_KEYS=[ORDERS_KEY,LOGS_KEY,META_KEY];
 const SYS_CUSTOMER='【系统库存】';
 
-function load(key){try{const r=localStorage.getItem(key);return r?JSON.parse(r):[]}catch{return[]}}
-function save(key,data){
-  try{
-    localStorage.setItem(key,JSON.stringify(data));
-    return true;
-  }catch(err){
-    toast('保存失败：浏览器存储空间不足，请先导出备份');
-    return false;
-  }
-}
-
-let orders=load(ORDERS_KEY);
-let purchaseLogs=load(LOGS_KEY);
-let productMeta=load(META_KEY);
-if(!productMeta||typeof productMeta!=='object'||Array.isArray(productMeta))productMeta={};
-
+const MIGRATION_KEY='dual_table_migration_v6';
+const V5_KEYS=['dual_table_orders_v5','dual_table_purchase_logs_v5','dual_table_product_meta_v5'];
+const WATCH_KEYS=[...DATA_KEYS,MIGRATION_KEY];
+const MAX_MONEY=1e12; // 元；单价、单笔和账本合计均须在可可靠计算的范围内
+let orders=[],purchaseLogs=[],productMeta={};
 let storageBaseline=null;
+let dataProtection=null;
+let storageSyncPending=false;
+
 function cloneData(data){return JSON.parse(JSON.stringify(data));}
 function captureDataState(){return{orders:cloneData(orders),purchaseLogs:cloneData(purchaseLogs),productMeta:cloneData(productMeta)};}
-function restoreDataState(state){orders=state.orders;purchaseLogs=state.purchaseLogs;productMeta=state.productMeta;}
+function restoreDataState(state){orders=cloneData(state.orders);purchaseLogs=cloneData(state.purchaseLogs);productMeta=cloneData(state.productMeta);}
+function isRecord(value){return value!==null&&typeof value==='object'&&!Array.isArray(value);}
+function validateDataState(input,{legacy=false}={}){
+  const fail=(path,message)=>{throw new Error(path+'：'+message);};
+  const own=(obj,key)=>Object.prototype.hasOwnProperty.call(obj,key);
+  // JSON 中的异常键也不能经由未使用的附加字段进入候选对象。
+  function safeKeys(value,path){
+    if(!value||typeof value!=='object')return;
+    for(const key of Object.keys(value)){
+      if(['__proto__','prototype','constructor'].includes(key))fail(path+'.'+key,'不允许的对象属性');
+      safeKeys(value[key],path+'.'+key);
+    }
+  }
+  function text(value,path,required=false,name=false){
+    if(typeof value!=='string'||/[\u0000-\u0008\u000b\u000c\u000e-\u001f\u007f]/.test(value))fail(path,'必须是合法文本');
+    if(required&&!value.trim())fail(path,'不能为空');
+    if(name&&(value!==value.trim()||/[\r\n\t]/.test(value)||own(Object.prototype,value)))fail(path,'名称不能含首尾空格或使用保留名称');
+    return value;
+  }
+  function integer(value,path,min){
+    if(!Number.isSafeInteger(value)||value<min)fail(path,'必须是'+(min===0?'非负':'正')+'安全整数');
+    return value;
+  }
+  function money(value,path){
+    if(typeof value!=='number'||!Number.isFinite(value)||value<0||value>MAX_MONEY)fail(path,'必须是0至'+MAX_MONEY+'之间的有限数字');
+    return value;
+  }
+  function id(value,path,seen){
+    if(typeof value!=='string'||!/^[a-zA-Z0-9_-]+$/.test(value))fail(path,'必须是非空字母、数字、下划线或短横线组成的ID');
+    if(seen.has(value))fail(path,'ID重复：'+value);
+    seen.add(value);
+  }
+  if(!isRecord(input))fail('账本','必须是对象');
+  safeKeys(input,'账本');
+  if(!Array.isArray(input.orders))fail('orders','必须是数组');
+  if(!Array.isArray(input.purchaseLogs))fail('purchaseLogs','必须是数组');
+  if(!isRecord(input.productMeta))fail('productMeta','必须是对象');
+  const state=cloneData(input),orderIds=new Set(),logIds=new Set(),totals=new Map();
+  function productTotals(product){
+    if(!totals.has(product))totals.set(product,{demand:0,allocated:0,bought:0});
+    return totals.get(product);
+  }
+  let sales=0,spend=0;
+  state.orders.forEach((o,i)=>{
+    const p='orders['+i+']';
+    if(!isRecord(o))fail(p,'必须是订单对象');
+    if(legacy){
+      if(o.sellingPrice===undefined)o.sellingPrice=0;
+      if(o.isPaid===undefined)o.isPaid=false;
+      if(o.location===undefined)o.location='';
+    }
+    if(o.note===undefined)o.note='';
+    id(o.id,p+'.id',orderIds);
+    text(o.customer,p+'.customer',true,true);
+    if(o.customer===SYS_CUSTOMER)fail(p+'.customer','包含旧系统库存行，需要核对原始数据，不能自动删除');
+    text(o.product,p+'.product',true,true);
+    integer(o.qty,p+'.qty',1);integer(o.purchased,p+'.purchased',0);
+    if(o.purchased>o.qty)fail(p+'.purchased','不能大于订单数量');
+    money(o.sellingPrice,p+'.sellingPrice');
+    if(typeof o.isPaid!=='boolean')fail(p+'.isPaid','必须是boolean，不能是字符串');
+    text(o.location,p+'.location',false,true);text(o.note,p+'.note');
+    const t=productTotals(o.product);t.demand+=o.qty;t.allocated+=o.purchased;
+    integer(t.demand,p+'.qty合计',0);integer(t.allocated,p+'.purchased合计',0);
+    sales+=money(o.qty*o.sellingPrice,p+'.订单金额');money(sales,'orders.金额合计');
+  });
+  state.purchaseLogs.forEach((log,i)=>{
+    const p='purchaseLogs['+i+']';
+    if(!isRecord(log))fail(p,'必须是采购对象');
+    if(legacy&&log.location===undefined)log.location='';
+    id(log.id,p+'.id',logIds);text(log.product,p+'.product',true,true);
+    integer(log.qty,p+'.qty',1);money(log.unitPrice,p+'.unitPrice');money(log.totalCost,p+'.totalCost');
+    text(log.location,p+'.location',false,true);integer(log.timestamp,p+'.timestamp',0);
+    if(log.timestamp>8640000000000000)fail(p+'.timestamp','超出有效时间范围');
+    const expected=money(log.qty*log.unitPrice,p+'.数量×单价');
+    // 兼容现有按比例扣减流水留下的浮点尾差，不改变任何金额。
+    if(Math.abs(log.totalCost-expected)>Math.max(0.000001,expected*1e-12))fail(p+'.totalCost','与数量×单价不一致');
+    const t=productTotals(log.product);t.bought+=log.qty;integer(t.bought,p+'.qty合计',0);
+    spend+=log.totalCost;money(spend,'purchaseLogs.成本合计');
+  });
+  for(const [product,meta] of Object.entries(state.productMeta)){
+    text(product,'productMeta.商品名',true,true);
+    const p='productMeta['+product+']';
+    if(!isRecord(meta))fail(p,'必须是对象');
+    if(meta.lastLocation===undefined)meta.lastLocation='';
+    if(meta.lastPrice===undefined)meta.lastPrice=0;
+    if(meta.note===undefined)meta.note='';
+    text(meta.lastLocation,p+'.lastLocation',false,true);text(meta.note,p+'.note');
+    if(meta.lastPrice!==null)money(meta.lastPrice,p+'.lastPrice');
+  }
+  for(const [product,t] of totals){
+    if(t.allocated>t.bought)fail('商品「'+product+'」','总已分配超过总采购');
+    if(t.allocated!==Math.min(t.demand,t.bought))fail('商品「'+product+'」','已分配与需求/采购不一致，不能同时存在未分配库存和订单缺口');
+  }
+  return{orders:state.orders,purchaseLogs:state.purchaseLogs,productMeta:state.productMeta};
+}
+function validateBackup(data){
+  if(!isRecord(data)||data.version!==2)throw new Error('version：仅支持版本2的完整备份，未知或缺失版本不能直接导入');
+  return validateDataState(data);
+}
+function readRawData(){
+  const raw={},errors=[];
+  for(const key of [...WATCH_KEYS,...V5_KEYS]){
+    try{raw[key]=localStorage.getItem(key);}
+    catch(err){errors.push(key+'：无法读取（'+err.message+'）');}
+  }
+  return{raw,errors};
+}
+function decodeStoredState(raw,keys,{legacy=false}={}){
+  const values=keys.map((key,i)=>{
+    if(raw[key]===null)return i===2?{}:[];
+    if(typeof raw[key]!=='string')throw new Error(key+'：读取未完成');
+    try{return JSON.parse(raw[key]);}catch{throw new Error(key+'：JSON语法损坏');}
+  });
+  try{return validateDataState({orders:values[0],purchaseLogs:values[1],productMeta:values[2]},{legacy});}
+  catch(err){
+    const label=err.message.startsWith('orders')?keys[0]:err.message.startsWith('purchaseLogs')?keys[1]:err.message.startsWith('productMeta')?keys[2]:keys[0]+' / '+keys[1];
+    throw new Error(label+'：'+err.message);
+  }
+}
 function syncStorageBaseline(){
-  try{
-    storageBaseline={};
-    for(const key of DATA_KEYS)storageBaseline[key]=localStorage.getItem(key);
-  }catch{storageBaseline=null;}
+  const baseline={};
+  for(const key of WATCH_KEYS)baseline[key]=localStorage.getItem(key);
+  storageBaseline=baseline;
 }
-function reloadDataFromStorage(){
-  orders=load(ORDERS_KEY);
-  purchaseLogs=load(LOGS_KEY);
-  productMeta=load(META_KEY);
-  if(!Array.isArray(orders))orders=[];
-  if(!Array.isArray(purchaseLogs))purchaseLogs=[];
-  if(!productMeta||typeof productMeta!=='object'||Array.isArray(productMeta))productMeta={};
+function showDataProtection(message,snapshot=null){
+  const reading=readRawData();
+  // 首次故障时的原始字符串和完整快照不被后续事件替换。
+  if(!dataProtection)dataProtection={message,raw:reading.raw,readErrors:reading.errors,snapshot:snapshot?cloneData(snapshot):null};
+  else if(message!==dataProtection.message)dataProtection.message=message+'\n原始异常：'+dataProtection.message;
+  if(dataProtection.snapshot)restoreDataState(dataProtection.snapshot);
+  storageBaseline=null;
+  document.getElementById('data-protection').hidden=false;
+  document.getElementById('data-protection-message').textContent=dataProtection.message+
+    '\n普通记账已暂停，不会自动覆盖存储。请先导出恢复资料。'+
+    (dataProtection.snapshot?'\n操作前完整账本仅保留在当前页面；导出前不要关闭或刷新。':'');
+  document.getElementById('btn-export-snapshot').disabled=!dataProtection.snapshot;
+  document.querySelectorAll('.top-bar,.section,.bottom-bar').forEach(el=>el.inert=true);
+  document.querySelectorAll('.modal-overlay.show').forEach(el=>el.classList.remove('show'));
+  window.scrollTo(0,0);
 }
-function persistDataState(previousState,keys){
-  const uniqueKeys=Array.from(new Set(keys));
-  const previousRaw={};
-  const writtenKeys=[];
+function canWriteData(){
+  if(!dataProtection&&!storageSyncPending)return true;
+  if(!dataProtection){toast('正在同步其他窗口的数据，请稍后重试');return false;}
+  toast('数据处于恢复保护中，请先导出恢复资料');return false;
+}
+function downloadRecoveryFile(value,name){
+  const url=URL.createObjectURL(new Blob([JSON.stringify(value,null,2)],{type:'application/json'}));
+  const a=document.createElement('a');a.href=url;a.download=name;
+  document.body.appendChild(a);a.click();a.remove();setTimeout(()=>URL.revokeObjectURL(url),1000);
+}
+function exportRecoveryRaw(){
+  if(!dataProtection)return;
+  downloadRecoveryFile({recoveryFormat:1,exportedAt:new Date().toISOString(),reason:dataProtection.message,
+    raw:dataProtection.raw,readErrors:dataProtection.readErrors},'双表记账_原始恢复资料.json');
+}
+function exportRecoverySnapshot(){
+  if(!dataProtection||!dataProtection.snapshot)return;
+  downloadRecoveryFile({version:2,exportedAt:new Date().toISOString(),...dataProtection.snapshot},'双表记账_操作前完整备份.json');
+}
+function reloadDataFromStorage(previousState,{deferProtection=false}={}){
+  if(dataProtection)return false;
+  const reading=readRawData();
   try{
-    if(storageBaseline){
-      const changed=DATA_KEYS.some(key=>localStorage.getItem(key)!==storageBaseline[key]);
+    if(reading.errors.length)throw new Error(reading.errors.join('\n'));
+    const marker=reading.raw[MIGRATION_KEY];
+    if(marker!==JSON.stringify({status:'complete'}))throw new Error(MIGRATION_KEY+'：迁移状态已变化，请导出快照后重新打开');
+    const state=decodeStoredState(reading.raw,DATA_KEYS,{legacy:true});
+    if(WATCH_KEYS.some(key=>localStorage.getItem(key)!==reading.raw[key]))throw new Error('其他窗口仍在写入数据');
+    restoreDataState(state);storageBaseline=Object.fromEntries(WATCH_KEYS.map(k=>[k,reading.raw[k]]));return true;
+  }catch(err){if(!deferProtection)showDataProtection(err.message,previousState);return false;}
+}
+function persistDataState(previousState,keys,{recovery=false}={}){
+  if(dataProtection&&!recovery){restoreDataState(dataProtection.snapshot||previousState);return false;}
+  if(storageSyncPending&&!recovery){restoreDataState(previousState);toast('正在同步，请稍后重试');return false;}
+  // 在任何正式写入之前检查完整候选账本；失败只恢复内存，不触碰存储。
+  try{validateDataState(captureDataState(),{legacy:true});}
+  catch(err){restoreDataState(previousState);renderAll();toast('数据约束异常，未保存：'+err.message);return false;}
+  const protectionBefore=dataProtection;
+  const uniqueKeys=Array.from(new Set(recovery?[...keys,MIGRATION_KEY]:keys));
+  const previousRaw={},writtenKeys=[];
+  try{
+    if(recovery){
+      // 恢复是用户显式确认的完整替换；保留本次替换前的原始字符串供回滚。
+      for(const key of WATCH_KEYS)previousRaw[key]=localStorage.getItem(key);
+    }else if(storageBaseline){
+      const changed=WATCH_KEYS.some(key=>localStorage.getItem(key)!==storageBaseline[key]);
       if(changed){
-        reloadDataFromStorage();syncStorageBaseline();renderAll();
-        toast('检测到其他窗口已有新数据，本次操作未保存，请重试');
+        restoreDataState(previousState);
+        queueStorageSync();
+        toast('检测到其他窗口已有新数据，本次操作未保存，请稍后重试');
         return false;
       }
+    }else{
+      throw new Error('缺少可靠的存储基线');
     }
-    for(const key of uniqueKeys)previousRaw[key]=localStorage.getItem(key);
+    for(const key of uniqueKeys)if(!(key in previousRaw))previousRaw[key]=localStorage.getItem(key);
     for(const key of uniqueKeys){
-      const data=key===ORDERS_KEY?orders:key===LOGS_KEY?purchaseLogs:productMeta;
-      localStorage.setItem(key,JSON.stringify(data));
-      writtenKeys.push(key);
+      const data=key===ORDERS_KEY?orders:key===LOGS_KEY?purchaseLogs:key===META_KEY?productMeta:{status:'complete'};
+      localStorage.setItem(key,JSON.stringify(data));writtenKeys.push(key);
     }
     syncStorageBaseline();
+    if(recovery){
+      dataProtection=null;storageSyncPending=false;clearTimeout(storageSyncTimer);
+      document.getElementById('data-protection').hidden=true;
+      document.querySelectorAll('.top-bar,.section,.bottom-bar').forEach(el=>el.inert=false);
+    }
     return true;
   }catch(err){
     let rollbackOk=true;
@@ -915,59 +1090,90 @@ function persistDataState(previousState,keys){
         else localStorage.setItem(key,previousRaw[key]);
       }catch(rollbackErr){rollbackOk=false;}
     }
-    if(rollbackOk)restoreDataState(previousState);else reloadDataFromStorage();
-    try{syncStorageBaseline();}catch{}
-    renderAll();
-    toast('保存失败：本次操作未生效，请先导出备份并检查存储空间');
-    return false;
+    restoreDataState(previousState);
+    if(!rollbackOk){
+      showDataProtection('严重保存错误：存储可能已部分改变，回滚也失败。'+err.message,
+        protectionBefore?protectionBefore.snapshot:previousState);
+    }else if(protectionBefore){
+      dataProtection=protectionBefore;
+      showDataProtection(protectionBefore.message,protectionBefore.snapshot);
+      toast('恢复未完成，已恢复本次替换前的原始存储；请保留恢复资料');
+    }else{
+      try{syncStorageBaseline();}
+      catch(readErr){showDataProtection('无法确认存储状态：'+readErr.message,previousState);}
+      toast(dataProtection?'存储异常，已进入恢复保护':'保存失败：已回滚，本次操作未生效，请先导出备份并检查存储空间');
+    }
+    renderAll();return false;
   }
 }
-
-// ── v5 → v6 数据迁移（防止键名升级导致数据"消失"）──
-if(orders.length===0&&purchaseLogs.length===0&&Object.keys(productMeta).length===0){
-  const v5o=load('dual_table_orders_v5'),v5l=load('dual_table_purchase_logs_v5'),v5m=load('dual_table_product_meta_v5');
-  if(v5o.length>0||v5l.length>0||(v5m&&Object.keys(v5m).length>0)){
-    orders=v5o;purchaseLogs=v5l;productMeta=v5m||{};
-    save(ORDERS_KEY,orders);save(LOGS_KEY,purchaseLogs);save(META_KEY,productMeta);
+function initializeData(){
+  const reading=readRawData();let goodState=null;
+  try{
+    if(reading.errors.length)throw new Error(reading.errors.join('\n'));
+    const raw=reading.raw;
+    let marker=null;
+    if(raw[MIGRATION_KEY]!==null){
+      try{marker=JSON.parse(raw[MIGRATION_KEY]);}catch{throw new Error(MIGRATION_KEY+'：JSON语法损坏');}
+      if(!isRecord(marker)||!['pending','complete'].includes(marker.status))throw new Error(MIGRATION_KEY+'：状态不合法');
+    }
+    if(marker&&marker.status==='pending'){
+      if(!isRecord(marker.source)||!isRecord(marker.before))throw new Error(MIGRATION_KEY+'：缺少迁移恢复信息');
+      for(const key of V5_KEYS)if(marker.source[key]!==raw[key])throw new Error(key+'：迁移期间原始v5数据发生变化，不能自动重试');
+      goodState=decodeStoredState(marker.source,V5_KEYS,{legacy:true});
+      const target=[goodState.orders,goodState.purchaseLogs,goodState.productMeta];
+      DATA_KEYS.forEach((key,i)=>{
+        if(marker.before[key]!==null)throw new Error(MIGRATION_KEY+'：迁移起点不合法');
+        if(raw[key]!==marker.before[key]&&raw[key]!==JSON.stringify(target[i]))throw new Error(key+'：与待迁移数据不一致，保留现有数据并停止重试');
+      });
+    }else if(DATA_KEYS.every(key=>raw[key]===null)&&!marker&&V5_KEYS.some(key=>raw[key]!==null)){
+      goodState=decodeStoredState(raw,V5_KEYS,{legacy:true});
+      marker={status:'pending',source:Object.fromEntries(V5_KEYS.map(k=>[k,raw[k]])),
+        before:Object.fromEntries(DATA_KEYS.map(k=>[k,raw[k]]))};
+      // 先保存重试依据，再触碰v6；失败时不删除v5，也不让半套v6进入普通记账。
+      localStorage.setItem(MIGRATION_KEY,JSON.stringify(marker));
+    }else{
+      if(!marker&&V5_KEYS.some(k=>raw[k]!==null)&&DATA_KEYS.some(k=>raw[k]!==null)&&DATA_KEYS.some(k=>raw[k]===null)){
+        throw new Error('v6键不完整且存在v5数据：可能是旧版半迁移，不能猜测并覆盖；请导出原始恢复资料');
+      }
+      // 已存在的v6（包括显式空数组）优先，绝不因内容为空重新导入v5。
+      goodState=decodeStoredState(raw,DATA_KEYS,{legacy:true});
+    }
+    if(marker&&marker.status==='pending'){
+      const target=[goodState.orders,goodState.purchaseLogs,goodState.productMeta];
+      DATA_KEYS.forEach((key,i)=>localStorage.setItem(key,JSON.stringify(target[i])));
+    }
+    if(!marker||marker.status!=='complete')localStorage.setItem(MIGRATION_KEY,JSON.stringify({status:'complete'}));
+    restoreDataState(goodState);syncStorageBaseline();
+  }catch(err){
+    if(goodState)restoreDataState(goodState);
+    showDataProtection('数据异常/恢复保护：'+err.message,goodState);
   }
 }
-
-// ── 自愈：从 purchaseLogs 重建 productMeta 中的 lastPrice ──
-// 解决"入库日志已存但 productMeta 因 price>0 拦截或异常丢失"导致刷新后单价变 - 的问题
-for(const log of purchaseLogs){
-  if(!log.unitPrice||log.unitPrice<=0)continue;
-  if(productMeta[log.product]&&productMeta[log.product].lastPrice===null)continue;
-  if(!productMeta[log.product])productMeta[log.product]={lastLocation:'',lastPrice:0};
-  // 取最新一次有价入库的单价
-  if(log.unitPrice>0)productMeta[log.product].lastPrice=log.unitPrice;
-  if(log.location&&log.location.trim())productMeta[log.product].lastLocation=log.location.trim();
-}
-save(META_KEY,productMeta);
 
 let pendingAlloc=null;
 let editingOrderId=null;
 let editingField=null;  // { orderId, field:'product'|'qty' }
-let isComposing=false;  // IME 组合输入标志（拼音/五笔防抖）
-
-// 迁移旧字段
-for(const o of orders){
-  if(o.sellingPrice===undefined)o.sellingPrice=0;
-  if(o.isPaid===undefined)o.isPaid=false;
-  if(o.note===undefined)o.note='';
-}
-// 清理旧版遗留的系统库存 order 行（新版通过 purchaseLogs 进销分离计算库存，无需这些行）
-const hadSysOrders=orders.some(o=>o.customer===SYS_CUSTOMER);
-if(hadSysOrders){orders=orders.filter(o=>o.customer!==SYS_CUSTOMER);save(ORDERS_KEY,orders);}
-
-syncStorageBaseline();
+let isComposing=false;
 let storageSyncTimer=null;
+function queueStorageSync(){
+  if(dataProtection)return;
+  clearTimeout(storageSyncTimer);storageSyncPending=true;
+  // 一次保存会发出多个storage事件。先暂停本页写入，等完整数据稳定后再校验；
+  // 不能把短暂的跨键中间状态直接当成永久损坏，也不能在等待期间接受普通写入。
+  let attempts=0;
+  const retry=()=>{
+    if(dataProtection){storageSyncPending=false;return;}
+    const previousState=captureDataState();
+    if(reloadDataFromStorage(previousState,{deferProtection:attempts<2})){
+      storageSyncPending=false;renderAll();toast('已同步其他窗口的最新数据');
+    }else if(++attempts<3){storageSyncTimer=setTimeout(retry,100);}
+    else storageSyncPending=false;
+  };
+  storageSyncTimer=setTimeout(retry,50);
+}
 window.addEventListener('storage',function(e){
-  if(!DATA_KEYS.includes(e.key))return;
-  clearTimeout(storageSyncTimer);
-  storageSyncTimer=setTimeout(()=>{
-    reloadDataFromStorage();syncStorageBaseline();renderAll();
-    toast('已同步其他窗口的最新数据');
-  },0);
+  if(e.key!==null&&!WATCH_KEYS.includes(e.key))return;
+  queueStorageSync();
 });
 
 function getProductMeta(p){return productMeta[p]||{lastLocation:'',lastPrice:0,note:''};}
@@ -1096,6 +1302,7 @@ function filterProducts(query){
 function openExportModal(){closeMenu();document.getElementById('modal-export').classList.add('show');}
 function closeExportModal(){document.getElementById('modal-export').classList.remove('show');}
 function doExportFile(){
+  if(dataProtection){if(dataProtection.snapshot)exportRecoverySnapshot();else exportRecoveryRaw();return;}
   const backup={version:2,exportedAt:new Date().toISOString(),orders,purchaseLogs,productMeta};
   const text=JSON.stringify(backup,null,2);
   const blob=new Blob([text],{type:'application/json'});
@@ -1123,22 +1330,29 @@ function handleImportFile(event){
   if(!file)return;
   const reader=new FileReader();
   reader.onload=function(e){
-    let data;
-    try{data=JSON.parse(e.target.result);}catch(err){toast('❌ 文件格式错误，无法解析为 JSON');event.target.value='';return;}
-    if(!data.orders||!Array.isArray(data.orders)){toast('❌ 数据格式不正确：缺少 orders');event.target.value='';return;}
-    if(!data.purchaseLogs||!Array.isArray(data.purchaseLogs)){toast('❌ 数据格式不正确：缺少 purchaseLogs');event.target.value='';return;}
-    if(!data.productMeta||typeof data.productMeta!=='object'||Array.isArray(data.productMeta)){toast('❌ 数据格式不正确：缺少 productMeta');event.target.value='';return;}
-    if(!confirm('确定要导入「'+file.name+'」吗？\n当前数据将被覆盖。')){event.target.value='';return;}
+    let candidate;
+    try{candidate=validateBackup(JSON.parse(e.target.result));}
+    catch(err){
+      const message=err instanceof SyntaxError?'JSON语法错误':err.message;
+      toast('导入已拒绝：'+message);
+      alert('导入已拒绝，原账本未改动。\n'+message);
+      event.target.value='';return;
+    }
+    const recovering=!!dataProtection;
+    const warning=recovering?'当前处于恢复保护。请先导出原始恢复资料及可用的操作前备份。\n确定用此正常备份替换当前存储并恢复记账吗？':'确定要导入「'+file.name+'」吗？\n当前数据将被覆盖。';
+    if(!confirm(warning)){event.target.value='';return;}
     const previousState=captureDataState();
-    orders=data.orders;purchaseLogs=data.purchaseLogs;productMeta=data.productMeta;
-    if(!persistDataState(previousState,DATA_KEYS)){event.target.value='';return;}
-    renderAll();closeImportModal();toast('✅ 备份文件已成功导入并加载');
+    restoreDataState(candidate);
+    if(!persistDataState(previousState,DATA_KEYS,{recovery:recovering})){event.target.value='';return;}
+    renderAll();closeImportModal();toast('✅ 备份文件已验证并成功导入');
     event.target.value='';
   };
-  reader.onerror=function(){toast('❌ 文件读取失败');event.target.value='';};
+  reader.onerror=function(){toast('❌ 文件读取失败，原账本未改动');event.target.value='';};
   reader.readAsText(file,'utf-8');
 }
+
 function clearAllData(){
+  if(!canWriteData())return;
   closeMenu();
   if(!confirm('⚠️ 确定要清空所有数据吗？\n\n此操作将删除全部订单、采购记录和商品信息，且无法撤销。\n\n建议先导出备份数据。'))return;
   if(!confirm('再次确认：确实要清空所有数据？'))return;
@@ -1210,7 +1424,7 @@ function allocatePurchase(product,qty,unitPrice,location,hasUnitPrice){
     allocated.push({orderId:o.id,customer:o.customer,product:o.product,allocated:give,gapBefore:gap,gapAfter:gap-give});
     remaining-=give;
   }
-  return{allocated,remaining,product,totalQty:qty,unitPrice,location,hasUnitPrice};
+  return{allocated,remaining,product,totalQty:qty,unitPrice,location,hasUnitPrice,sourceSnapshot:JSON.stringify(captureDataState())};
 }
 // 获取商品最新采购单价（productMeta 主源 + purchaseLogs 兜底）
 function getLatestPrice(product){
@@ -1389,7 +1603,7 @@ function renderProducts(){
     }
     html+='<div class="location-body" data-location="'+escAttr(loc.location)+'">';
     if(isStock){
-      html+='<table class="table-dense"><thead><tr><th class="col-prod">商品</th><th class="col-num">库存量</th><th class="col-price">单价</th><th class="col-gap"></th><th class="col-act"></th></tr></thead><tbody>';
+      html+='<table class="table-dense"><thead><tr><th class="col-prod">商品</th><th class="col-num">库存量</th><th class="col-price">默认价</th><th class="col-gap"></th><th class="col-act"></th></tr></thead><tbody>';
       for(const p of loc.products){
         const price=getEffectivePrice(p.product);
         const priceStr=price>0?'¥'+price.toFixed(2):'<span style="color:#ccc">-</span>';
@@ -1398,14 +1612,14 @@ function renderProducts(){
         html+='<tr class="row-done">';
         html+='<td style="font-weight:600">'+esc(p.product)+'</td>';
         html+='<td class="col-num"><span class="cell-clickable prod-purchased-click" onclick="event.stopPropagation();openEditPurchasedModal(\''+prodJs+'\',\'__stock__\','+p.total+')" title="点击修改库存量" style="color:var(--orange);font-weight:700">'+p.total+'</span></td>';
-        html+='<td class="col-price" style="font-size:11px;font-weight:600"><span class="cell-clickable prod-price-click" onclick="event.stopPropagation();openEditProductPriceModal(\''+prodJs+'\')" title="点击修改单价">'+priceStr+'</span></td>';
+        html+='<td class="col-price" style="font-size:11px;font-weight:600"><span class="cell-clickable prod-price-click" onclick="event.stopPropagation();openEditProductPriceModal(\''+prodJs+'\')" title="点击修改默认采购价（不改变历史）">'+priceStr+'</span></td>';
         html+='<td class="col-gap"><span style="color:var(--orange);font-size:11px">库存</span></td>';
         html+='<td class="col-act"><button class="btn-sm btn-note'+(pNote?' btn-note-active':'')+'" onclick="event.stopPropagation();openProductNoteModal(\''+prodJs+'\')" title="'+(pNote?escAttr(pNote):'添加备注')+'">'+(pNote?'📝':'📄')+'</button></td>';
         html+='</tr>';
       }
       html+='</tbody></table></div></div>';
     }else{
-      html+='<table class="table-dense"><thead><tr><th class="col-prod">商品</th><th class="col-num">总需</th><th class="col-num">已采</th><th class="col-price">单价</th><th class="col-gap">缺口</th><th class="col-act"></th></tr></thead><tbody>';
+      html+='<table class="table-dense"><thead><tr><th class="col-prod">商品</th><th class="col-num">总需</th><th class="col-num">已采</th><th class="col-price">默认价</th><th class="col-gap">缺口</th><th class="col-act"></th></tr></thead><tbody>';
       for(const p of loc.products){
         const gap=p.total-p.purchased;const rowClass=gap>0?'row-urgent':'row-done';
         const price=getEffectivePrice(p.product);
@@ -1417,7 +1631,7 @@ function renderProducts(){
         // 已采 — 可点击修改
         html+='<td class="col-num"><span class="cell-clickable prod-purchased-click" onclick="event.stopPropagation();openEditPurchasedModal(\''+prodJs+'\',\''+escInlineArg(loc.location)+'\','+p.purchased+')" title="点击修改已采数量">'+p.purchased+'</span></td>';
         // 单价 — 可点击修改
-        html+='<td class="col-price" style="font-size:11px;font-weight:600"><span class="cell-clickable prod-price-click" onclick="event.stopPropagation();openEditProductPriceModal(\''+prodJs+'\')" title="点击修改单价">'+(price>0?'¥'+price.toFixed(2):'<span style="color:#ccc">-</span>')+'</span></td>';
+        html+='<td class="col-price" style="font-size:11px;font-weight:600"><span class="cell-clickable prod-price-click" onclick="event.stopPropagation();openEditProductPriceModal(\''+prodJs+'\')" title="点击修改默认采购价（不改变历史）">'+(price>0?'¥'+price.toFixed(2):'<span style="color:#ccc">-</span>')+'</span></td>';
         html+='<td class="col-gap">'+(gap>0?'<span class="gap urgent">'+gap+'</span>':'<span class="gap done">✓</span>')+'</td>';
         const pNote=(getProductMeta(p.product).note||'').trim();
         html+='<td class="col-act"><button class="btn-sm btn-note'+(pNote?' btn-note-active':'')+'" onclick="event.stopPropagation();openProductNoteModal(\''+prodJs+'\')" title="'+(pNote?escAttr(pNote):'添加备注')+'">'+(pNote?'📝':'📄')+'</button></td>';
@@ -1505,6 +1719,7 @@ function toggleLocation(toggleEl){const body=toggleEl.nextElementSibling,arrow=t
 // 操作：快捷入库 / 删除 / 收款打钩
 // ═══════════════════════════════════════════════════════
 function quickStockIn(product){
+  if(!canWriteData())return;
   const previousState=captureDataState();
   const target=orders.find(o=>o.customer!==SYS_CUSTOMER&&o.product===product&&o.purchased<o.qty);
   if(target)target.purchased++;
@@ -1517,11 +1732,23 @@ function quickStockIn(product){
 }
 // 长按删除绑定（每次 renderCustomers 后调用）
 let _lpTimer=null,_lpRow=null,_lpMoved=false,_lpActive=false;
+function cancelLongPress(){
+  clearTimeout(_lpTimer);_lpTimer=null;
+  if(_lpRow){_lpRow.style.background='';_lpRow.style.transition='';_lpRow=null;}
+}
+// 标记跨DOM重绘保留。仅真正的新手势可重置，触摸合成的mousedown不能重置。
+document.addEventListener('pointerdown',()=>{cancelLongPress();_lpActive=false;},true);
+document.addEventListener('pointerup',cancelLongPress,true);
+document.addEventListener('pointercancel',cancelLongPress,true);
+document.addEventListener('click',e=>{
+  if(_lpActive){_lpActive=false;e.preventDefault();e.stopImmediatePropagation();}
+},true);
 function bindLongPress(){
   document.querySelectorAll('#tab-customers .tap-row[data-id]').forEach(row=>{
     const id=row.getAttribute('data-id');
     const startTimer=()=>{
-      _lpActive=false;_lpMoved=false;
+      if(_lpActive)return;
+      cancelLongPress();_lpMoved=false;
       _lpRow=row;
       row.style.transition='background 0.6s';
       row.style.background='#ffe0e0';
@@ -1532,19 +1759,10 @@ function bindLongPress(){
         deleteOrder(id);
       },700);
     };
-    const cancel=()=>{
-      clearTimeout(_lpTimer);_lpTimer=null;
-      if(_lpRow){_lpRow.style.background='';_lpRow.style.transition='';_lpRow=null;}
-      // 若长按未真正触发（手指抬起时），短暂屏蔽 click 防止误触
-      // _lpActive=false 时说明是正常短按，不需要屏蔽
-    };
-    // 捕获阶段拦截 click：如果长按刚刚触发，吃掉这次 click
-    row.addEventListener('click',e=>{
-      if(_lpActive){_lpActive=false;e.stopPropagation();e.preventDefault();}
-    },true);
-
+    const cancel=cancelLongPress;
     row.addEventListener('touchstart',startTimer,{passive:true});
     row.addEventListener('touchend',cancel,{passive:true});
+    row.addEventListener('touchcancel',cancel,{passive:true});
     row.addEventListener('touchmove',()=>{_lpMoved=true;cancel();},{passive:true});
     row.addEventListener('mousedown',e=>{if(e.button===0)startTimer();});
     row.addEventListener('mouseup',cancel);
@@ -1553,6 +1771,7 @@ function bindLongPress(){
 }
 // 删除订单：移除该客户订单，将其已分配的采购量重新分配给其他有缺口的同商品客户
 function deleteOrder(id){
+  if(!canWriteData())return;
   if(!confirm('确定要删除这条订单？\n删除后已采购量将自动归还给其他有缺口的客户。'))return;
   const deleted=orders.find(o=>o.id===id);
   if(!deleted)return;
@@ -1573,6 +1792,7 @@ function deleteOrder(id){
   toast('已删除'+(releasedPurchased>0&&remaining<releasedPurchased?'，采购量已重新分配':''));
 }
 function togglePaid(id){
+  if(!canWriteData())return;
   const order=orders.find(o=>o.id===id);
   if(!order)return;
   const previousState=captureDataState();
@@ -1632,12 +1852,14 @@ function openEditFieldModal(orderId,field){
 }
 function closeEditFieldModal(){document.getElementById('modal-edit-field').classList.remove('show');editingField=null;}
 function confirmEditField(){
+  if(!canWriteData())return;
   if(!editingField)return;
   const order=orders.find(o=>o.id===editingField.orderId);if(!order)return;
   const raw=document.getElementById('input-edit-field').value.trim();
 
   if(editingField.field==='product'){
     if(!raw){toast('请输入商品名称');return;}
+    if(raw===order.product){closeEditFieldModal();toast('商品名称未变化');return;}
     const previousState=captureDataState();
     const oldProduct=order.product;
     const oldPurchased=order.purchased;
@@ -1707,6 +1929,7 @@ function openPriceModal(orderId){
 }
 function closePriceModal(){document.getElementById('modal-price').classList.remove('show');editingOrderId=null;}
 function confirmPriceEdit(){
+  if(!canWriteData())return;
   if(!editingOrderId)return;
   const raw=document.getElementById('input-edit-price').value.trim();
   const newPrice=raw?Number(raw):0;
@@ -1765,6 +1988,7 @@ function parseAndReview(){
 }
 function backToStep1(){showAddStep(1);document.getElementById('input-raw-order').focus();}
 function confirmAddOrder(){
+  if(!canWriteData())return;
   const customer=document.getElementById('input-confirm-customer').value.trim();
   const product=document.getElementById('input-confirm-product').value.trim();
   const qty=parseIntegerInput(document.getElementById('input-confirm-qty').value,1);
@@ -1850,7 +2074,13 @@ function previewAllocation(){
 }
 function backToStockStep1(){pendingAlloc=null;showStockStep(1);hideStockAutocomplete();document.getElementById('input-raw-stock').focus();}
 function confirmAllocation(){
+  if(!canWriteData())return;
   if(!pendingAlloc)return;
+  if(pendingAlloc.sourceSnapshot!==JSON.stringify(captureDataState())){
+    backToStockStep1();
+    toast('订单数据已经发生变化，请重新确认采购分配');
+    return;
+  }
   const{allocated,remaining,product,totalQty,unitPrice,location,hasUnitPrice}=pendingAlloc;
   const previousState=captureDataState();
   for(const a of allocated){
@@ -1883,6 +2113,7 @@ function closeProductNoteModal(){
   editingProductNote=null;
 }
 function confirmProductNote(){
+  if(!canWriteData())return;
   if(!editingProductNote)return;
   const product=editingProductNote;
   const note=document.getElementById('input-product-note').value.trim();
@@ -1918,6 +2149,7 @@ function closeEditPurchasedModal(){
   editingPurchasedCtx=null;
 }
 function confirmEditPurchased(){
+  if(!canWriteData())return;
   if(!editingPurchasedCtx)return;
   const{product,location}=editingPurchasedCtx;
   const newVal=parseIntegerInput(document.getElementById('input-edit-purchased').value,0);
@@ -1966,13 +2198,13 @@ function confirmEditPurchased(){
 }
 
 // ═══════════════════════════════════════════════════════
-// 商品汇总：修改采购单价
+// 商品汇总：修改默认采购价
 // ═══════════════════════════════════════════════════════
 let editingProductPriceCtx=null;
 function openEditProductPriceModal(product){
   editingProductPriceCtx=product;
-  document.getElementById('edit-product-price-title').textContent='修改采购单价';
-  document.getElementById('edit-product-price-hint').textContent='「'+product+'」';
+  document.getElementById('edit-product-price-title').textContent='修改默认采购价';
+  document.getElementById('edit-product-price-hint').textContent='「'+product+'」仅用于后续采购建议，不改变历史采购流水';
   const inp=document.getElementById('input-edit-product-price');
   const cur=getLatestPrice(product);
   inp.value=cur>0?cur:'';
@@ -1984,6 +2216,7 @@ function closeEditProductPriceModal(){
   editingProductPriceCtx=null;
 }
 function confirmEditProductPrice(){
+  if(!canWriteData())return;
   if(!editingProductPriceCtx)return;
   const product=editingProductPriceCtx;
   const raw=document.getElementById('input-edit-product-price').value.trim();
@@ -1991,15 +2224,11 @@ function confirmEditProductPrice(){
   const val=Number(raw);
   if(!Number.isFinite(val)||val<0){toast('单价必须是大于等于 0 的有效数字');return;}
   const previousState=captureDataState();
-  // 更新 productMeta（作为单价权威来源，renderFinance 用此计算花费）
+  // 默认价仅影响后续建议；历史批次单价和成本保持原样。
   updateProductMeta(product,'',val);
-  // 同步更新 purchaseLogs 中该商品所有记录的单价（保持流水一致）
-  for(const log of purchaseLogs){
-    if(log.product===product){log.unitPrice=val;log.totalCost=log.qty*val;}
-  }
-  if(!persistDataState(previousState,[META_KEY,LOGS_KEY]))return;
+  if(!persistDataState(previousState,[META_KEY]))return;
   renderAll();closeEditProductPriceModal();
-  toast('✅ '+product+' 单价已更新为 ¥'+val.toFixed(2));
+  toast('✅ '+product+' 默认采购价已更新为 ¥'+val.toFixed(2));
 }
 
 // ═══════════════════════════════════════════════════════
@@ -2016,6 +2245,7 @@ function openNoteModal(orderId){
 }
 function closeNoteModal(){document.getElementById('modal-note').classList.remove('show');editingNoteId=null;}
 function confirmNote(){
+  if(!canWriteData())return;
   if(!editingNoteId)return;
   const order=orders.find(o=>o.id===editingNoteId);if(!order)return;
   const previousState=captureDataState();
@@ -2237,6 +2467,7 @@ if('serviceWorker' in navigator){
 }
 
 // ═══════════════════════════════════════════════════════
+initializeData();
 renderAll();
 </script>
 </body>
