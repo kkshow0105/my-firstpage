@@ -654,7 +654,7 @@ tr.sys-stock td{color:#856404}
   <div class="modal-sheet">
     <div class="modal-step active" id="add-step1">
       <h2>新建订单</h2>
-      <p class="modal-hint">格式：<b>客户 商品 数量 [售价] [地点]</b><br>例：张三 止咳贴 2 35 盒马</p>
+      <p class="modal-hint">格式：<b>客户 商品 数量 [售价] [地点]</b><br>例：张三 止咳贴 2 35 盒马<br>含独立数字的名称加双引号，如 &quot;iPhone 18&quot;；地点可含数字和空格。</p>
       <div class="form-group" style="position:relative">
         <div id="order-input-hint" class="input-hint-bar" style="display:none"></div>
         <input type="text" id="input-raw-order" placeholder="张三 止咳贴 2 35 盒马" autocomplete="off" oninput="updateOrderHint(this.value);updateOrderAutocomplete(this)" onblur="setTimeout(hideOrderAutocomplete,150)">
@@ -826,7 +826,7 @@ tr.sys-stock td{color:#856404}
   <div class="modal-sheet">
     <div class="modal-step active" id="stock-step1">
       <h2>📥 采购入库</h2>
-      <p class="modal-hint">格式：<b>商品 数量 [单价] [地点]</b><br>例：止咳贴 5 15.5 盒马</p>
+      <p class="modal-hint">格式：<b>商品 数量 [单价] [地点]</b><br>例：止咳贴 5 15.5 盒马<br>含独立数字的名称加双引号，如 &quot;iPhone 18&quot;；地点可含数字和空格。</p>
       <div class="form-group" style="position:relative">
         <div id="stock-input-hint" class="input-hint-bar" style="display:none"></div>
         <input type="text" id="input-raw-stock" placeholder="止咳贴 5 15.5 盒马" autocomplete="off" oninput="updateStockHint(this.value);updateStockAutocomplete(this)" onblur="setTimeout(hideStockAutocomplete,150)">
@@ -868,30 +868,34 @@ const MIGRATION_KEY='dual_table_migration_v6';
 const V5_KEYS=['dual_table_orders_v5','dual_table_purchase_logs_v5','dual_table_product_meta_v5'];
 const WATCH_KEYS=[...DATA_KEYS,MIGRATION_KEY];
 const MAX_MONEY=1e12; // 元；单价、单笔和账本合计均须在可可靠计算的范围内
-let orders=[],purchaseLogs=[],productMeta={};
+let orders=[],purchaseLogs=[],productMeta=Object.create(null);
 let storageBaseline=null;
 let dataProtection=null;
 let storageSyncPending=false;
 
 function cloneData(data){return JSON.parse(JSON.stringify(data));}
 function captureDataState(){return{orders:cloneData(orders),purchaseLogs:cloneData(purchaseLogs),productMeta:cloneData(productMeta)};}
-function restoreDataState(state){orders=cloneData(state.orders);purchaseLogs=cloneData(state.purchaseLogs);productMeta=cloneData(state.productMeta);}
+function restoreDataState(state){orders=cloneData(state.orders);purchaseLogs=cloneData(state.purchaseLogs);productMeta=Object.assign(Object.create(null),cloneData(state.productMeta));}
 function isRecord(value){return value!==null&&typeof value==='object'&&!Array.isArray(value);}
 function validateDataState(input,{legacy=false}={}){
   const fail=(path,message)=>{throw new Error(path+'：'+message);};
-  const own=(obj,key)=>Object.prototype.hasOwnProperty.call(obj,key);
   // JSON 中的异常键也不能经由未使用的附加字段进入候选对象。
   function safeKeys(value,path){
+    if(typeof value==='number'&&!Number.isFinite(value))fail(path,'必须是有限数字');
     if(!value||typeof value!=='object')return;
     for(const key of Object.keys(value)){
-      if(['__proto__','prototype','constructor'].includes(key))fail(path+'.'+key,'不允许的对象属性');
+      // productMeta这一层的键是商品名；其值仍须是普通元数据，不能携带异常属性。
+      if(['__proto__','prototype','constructor'].includes(key)){
+        const meta=value[key];
+        if(value!==input.productMeta||!isRecord(meta)||Object.keys(meta).some(k=>!['lastLocation','lastPrice','note'].includes(k)))fail(path+'.'+key,'不允许的对象属性');
+      }
       safeKeys(value[key],path+'.'+key);
     }
   }
   function text(value,path,required=false,name=false){
     if(typeof value!=='string'||/[\u0000-\u0008\u000b\u000c\u000e-\u001f\u007f]/.test(value))fail(path,'必须是合法文本');
     if(required&&!value.trim())fail(path,'不能为空');
-    if(name&&(value!==value.trim()||/[\r\n\t]/.test(value)||own(Object.prototype,value)))fail(path,'名称不能含首尾空格或使用保留名称');
+    if(name&&(value!==value.trim()||/[\r\n\t]/.test(value)))fail(path,'名称不能含首尾空格或换行');
     return value;
   }
   function integer(value,path,min){
@@ -929,7 +933,7 @@ function validateDataState(input,{legacy=false}={}){
     if(o.note===undefined)o.note='';
     id(o.id,p+'.id',orderIds);
     text(o.customer,p+'.customer',true,true);
-    if(o.customer===SYS_CUSTOMER)fail(p+'.customer','包含旧系统库存行，需要核对原始数据，不能自动删除');
+    if(o.customer===SYS_CUSTOMER)fail(p+'.customer','这是系统保留名称，不能作为客户名使用；旧库存行需核对原始数据，不能自动删除');
     text(o.product,p+'.product',true,true);
     integer(o.qty,p+'.qty',1);integer(o.purchased,p+'.purchased',0);
     if(o.purchased>o.qty)fail(p+'.purchased','不能大于订单数量');
@@ -1050,7 +1054,7 @@ function persistDataState(previousState,keys,{recovery=false}={}){
   if(dataProtection&&!recovery){restoreDataState(dataProtection.snapshot||previousState);return false;}
   if(storageSyncPending&&!recovery){restoreDataState(previousState);toast('正在同步，请稍后重试');return false;}
   // 在任何正式写入之前检查完整候选账本；失败只恢复内存，不触碰存储。
-  try{validateDataState(captureDataState(),{legacy:true});}
+  try{validateDataState({orders,purchaseLogs,productMeta},{legacy:true});}
   catch(err){restoreDataState(previousState);renderAll();toast('数据约束异常，未保存：'+err.message);return false;}
   const protectionBefore=dataProtection;
   const uniqueKeys=Array.from(new Set(recovery?[...keys,MIGRATION_KEY]:keys));
@@ -1186,7 +1190,7 @@ function updateProductMeta(product,location,price){
 function genId(){return Date.now().toString(36)+Math.random().toString(36).slice(2,7)}
 function esc(s){const d=document.createElement('div');d.textContent=s;return d.innerHTML}
 function escAttr(s){return esc(String(s)).replace(/"/g,'&quot;').replace(/'/g,'&#39;')}
-function escJs(s){return s.replace(/\\/g,'\\\\').replace(/'/g,"\\'")}
+function escJs(s){return JSON.stringify(String(s)).slice(1,-1).replace(/'/g,"\\'").replace(/\u2028/g,'\\u2028').replace(/\u2029/g,'\\u2029')}
 function escInlineArg(s){return escAttr(escJs(String(s)))}
 function toast(msg){
   const el=document.getElementById('toast');el.textContent=msg;el.classList.add('show');
@@ -1357,7 +1361,7 @@ function clearAllData(){
   if(!confirm('⚠️ 确定要清空所有数据吗？\n\n此操作将删除全部订单、采购记录和商品信息，且无法撤销。\n\n建议先导出备份数据。'))return;
   if(!confirm('再次确认：确实要清空所有数据？'))return;
   const previousState=captureDataState();
-  orders=[];purchaseLogs=[];productMeta={};
+  orders=[];purchaseLogs=[];productMeta=Object.create(null);
   if(!persistDataState(previousState,DATA_KEYS))return;
   renderAll();toast('✅ 数据已清空，可开始新行程记账');
 }
@@ -1365,38 +1369,47 @@ function clearAllData(){
 // ═══════════════════════════════════════════════════════
 // NLP 解析
 // ═══════════════════════════════════════════════════════
+function validMoney(value){return typeof value==='number'&&Number.isFinite(value)&&value>=0&&value<=MAX_MONEY;}
 function parseIntegerInput(raw,min){
   const text=String(raw).trim();
   if(!/^\d+$/.test(text))return null;
   const value=Number(text);
   return Number.isSafeInteger(value)&&value>=min?value:null;
 }
-function parseOrderInput(raw){
-  const parts=raw.trim().split(/\s+/);if(parts.length<3)return null;
-  const numIdxs=[];for(let i=0;i<parts.length;i++){if(/^\d+(\.\d+)?$/.test(parts[i]))numIdxs.push(i);}
-  if(numIdxs.length===0||numIdxs[0]===0)return null;
-  const firstNumIdx=numIdxs[0],lastNumIdx=numIdxs[numIdxs.length-1];
-  const customer=parts[0];const qty=parseIntegerInput(parts[firstNumIdx],1);
-  if(!customer||qty===null)return null;
-  const possiblePrice=parts[firstNumIdx+1];
-  if(possiblePrice&&/^-\d+(\.\d+)?$/.test(possiblePrice))return{error:'negativePrice'};
-  let sellingPrice=0;if(numIdxs.length>=2){sellingPrice=Number(parts[numIdxs[1]]);if(!Number.isFinite(sellingPrice)||sellingPrice<0)return null;}
-  const product=parts.slice(1,firstNumIdx).join(' ');const location=parts.slice(lastNumIdx+1).join(' ');
-  if(!product)return null;
-  return{customer,product,qty,sellingPrice,location};
+// 先定位数量，再只读取紧随其后的可选价格；地点剩余文本不再参与数字扫描。
+// 名称含独立数字时使用双引号，例如 "iPhone 18"；引号内支持JSON转义。
+function parseQuickInput(raw,isOrder){
+  const error=message=>({error:message});
+  const tokens=[],source=raw.trim(),pattern=/\s*("(?:[^"\\]|\\.)*"|[^\s"]+)(?=\s|$)/gy;
+  let cursor=0;
+  while(cursor<source.length){
+    pattern.lastIndex=cursor;const match=pattern.exec(source);
+    if(!match)return error('引号格式不正确，请用双引号包住完整名称');
+    const quoted=match[1].startsWith('"');
+    let value;try{value=quoted?JSON.parse(match[1]):match[1];}catch{return error('引号内转义不正确');}
+    tokens.push({value,quoted});cursor=pattern.lastIndex;
+  }
+  const numeric=token=>token&&!token.quoted&&/^(?:[+-]?(?:\d+(?:\.\d*)?|\.\d+)(?:e[+-]?\d+)?|[+-]?Infinity|NaN)$/i.test(token.value);
+  const start=isOrder?1:0,customer=isOrder?tokens[0]?.value:undefined;
+  if(isOrder&&customer===SYS_CUSTOMER)return error('这是系统保留名称，不能作为客户名使用');
+  let at=start;
+  while(at<tokens.length&&!numeric(tokens[at]))at++;
+  if(at===start||at===tokens.length)return error('请填写商品和正整数数量；含独立数字的商品名请加双引号');
+  const product=tokens.slice(start,at).map(t=>t.value).join(' ');
+  const qty=parseIntegerInput(tokens[at++].value,1);
+  if(!product.trim()||isOrder&&!customer?.trim()||qty===null)return error('数量必须是正安全整数，不能是负数、小数、NaN或Infinity');
+  let price=0,hasPrice=false;
+  if(numeric(tokens[at])){
+    price=Number(tokens[at++].value);hasPrice=true;
+    if(!validMoney(price))return error('价格必须是0至'+MAX_MONEY+'元的有限数字');
+  }
+  if(numeric(tokens[at]))return error('数量、价格后出现多余数字；商品或以数字开头的地点请用双引号包住');
+  if(!validMoney(qty*price))return error('数量×价格不能超过'+MAX_MONEY+'元');
+  const location=tokens.slice(at).map(t=>t.value).join(' ');
+  return isOrder?{customer,product,qty,sellingPrice:price,location}:{product,qty,unitPrice:price,location,hasUnitPrice:hasPrice};
 }
-function parseStockInput(raw){
-  const parts=raw.trim().split(/\s+/);if(parts.length<2)return null;
-  const numIdxs=[];for(let i=0;i<parts.length;i++){if(/^\d+(\.\d+)?$/.test(parts[i]))numIdxs.push(i);}
-  if(numIdxs.length===0)return null;
-  const firstNumIdx=numIdxs[0],lastNumIdx=numIdxs[numIdxs.length-1];
-  const product=parts.slice(0,firstNumIdx).join(' ');if(!product)return null;
-  const qty=parseIntegerInput(parts[firstNumIdx],1);if(qty===null)return null;
-  let unitPrice=0,hasUnitPrice=false;
-  if(numIdxs.length>=2){unitPrice=Number(parts[numIdxs[1]]);hasUnitPrice=true;if(!Number.isFinite(unitPrice)||unitPrice<0)return null;}
-  const location=parts.slice(lastNumIdx+1).join(' ');
-  return{product,qty,unitPrice,location,hasUnitPrice};
-}
+function parseOrderInput(raw){return parseQuickInput(raw,true);}
+function parseStockInput(raw){return parseQuickInput(raw,false);}
 
 // ═══════════════════════════════════════════════════════
 // 系统库存消耗 / 分配引擎
@@ -1456,10 +1469,10 @@ function getCurrentStock(product){
 // ═══════════════════════════════════════════════════════
 function getProductSummaryByLocation(){
   // 只统计真实客户订单（排除系统库存行）
-  const map={};
+  const map=Object.create(null);
   for(const o of orders){
     if(o.customer===SYS_CUSTOMER)continue;
-    const loc=o.location||'未指定地点';if(!map[loc])map[loc]={};
+    const loc=o.location||'未指定地点';if(!map[loc])map[loc]=Object.create(null);
     if(!map[loc][o.product])map[loc][o.product]={product:o.product,total:0,purchased:0};
     map[loc][o.product].total+=o.qty;
     // 已采 = 该地点该商品所有订单的已分配量之和（与客户订单表一致）
@@ -1511,7 +1524,7 @@ function renderCustomers(){
     container.innerHTML='<div class="empty-state"><div class="icon">📋</div><p>暂无订单<br>点击底部按钮添加</p></div>';
     return;
   }
-  const grouped={};
+  const grouped=Object.create(null);
   for(const o of orders){
     if(o.customer===SYS_CUSTOMER)continue;
     if(!grouped[o.customer])grouped[o.customer]=[];grouped[o.customer].push(o);
@@ -1541,13 +1554,14 @@ function renderCustomers(){
       const priceStr=sp>0?'¥'+sp.toFixed(2):'-';
       const hasNote=item.note&&item.note.trim().length>0;
 
-      html+='<tr class="tap-row '+rowClass+'" data-id="'+item.id+'">';
-      html+='<td style="font-weight:600"><span class="cell-clickable" onclick="event.stopPropagation();openEditFieldModal(\''+item.id+'\',\'product\')" title="点击修改商品名">'+esc(item.product)+'</span></td>';
-      html+='<td class="c-num"><span class="cell-clickable" onclick="event.stopPropagation();openEditFieldModal(\''+item.id+'\',\'qty\')" title="点击修改数量">'+item.qty+'</span></td>';
-      html+='<td class="c-price-col" style="font-weight:600;color:'+(sp>0?'var(--text)':'var(--secondary)')+'"><span class="price-clickable" onclick="event.stopPropagation();openPriceModal(\''+item.id+'\')" title="点击修改售价">'+priceStr+'</span></td>';
-      html+='<td class="c-paid"><span class="paid-cell"><input type="checkbox" class="paid-check" '+(item.isPaid?'checked':'')+' onclick="event.stopPropagation();togglePaid(\''+item.id+'\')" title="标记已收款"><span class="paid-print-text" style="color:'+(item.isPaid?'var(--green)':'var(--secondary)')+'">'+(item.isPaid?'已付':'未付')+'</span></span></td>';
+      const idArg=escInlineArg(item.id);
+      html+='<tr class="tap-row '+rowClass+'" data-id="'+escAttr(item.id)+'">';
+      html+='<td style="font-weight:600"><span class="cell-clickable" onclick="event.stopPropagation();openEditFieldModal(\''+idArg+'\',\'product\')" title="点击修改商品名">'+esc(item.product)+'</span></td>';
+      html+='<td class="c-num"><span class="cell-clickable" onclick="event.stopPropagation();openEditFieldModal(\''+idArg+'\',\'qty\')" title="点击修改数量">'+item.qty+'</span></td>';
+      html+='<td class="c-price-col" style="font-weight:600;color:'+(sp>0?'var(--text)':'var(--secondary)')+'"><span class="price-clickable" onclick="event.stopPropagation();openPriceModal(\''+idArg+'\')" title="点击修改售价">'+priceStr+'</span></td>';
+      html+='<td class="c-paid"><span class="paid-cell"><input type="checkbox" class="paid-check" '+(item.isPaid?'checked':'')+' onclick="event.stopPropagation();togglePaid(\''+idArg+'\')" title="标记已收款"><span class="paid-print-text" style="color:'+(item.isPaid?'var(--green)':'var(--secondary)')+'">'+(item.isPaid?'已付':'未付')+'</span></span></td>';
       html+='<td class="c-prog"><span class="purchased-badge '+badgeClass+'"><span class="status-dot '+gapClass+'"></span>'+item.purchased+'/'+item.qty+'</span></td>';
-      html+='<td class="c-act"><button class="btn-sm btn-note'+(hasNote?' btn-note-active':'')+'" onclick="event.stopPropagation();openNoteModal(\''+item.id+'\')" title="'+(hasNote?escAttr(item.note):'添加备注')+'">'+(hasNote?'📝':'📄')+'</button></td>';
+      html+='<td class="c-act"><button class="btn-sm btn-note'+(hasNote?' btn-note-active':'')+'" onclick="event.stopPropagation();openNoteModal(\''+idArg+'\')" title="'+(hasNote?escAttr(item.note):'添加备注')+'">'+(hasNote?'📝':'📄')+'</button></td>';
       html+='</tr>';
     }
 
@@ -1799,7 +1813,7 @@ function togglePaid(id){
   order.isPaid=!order.isPaid;
   if(!persistDataState(previousState,[ORDERS_KEY]))return;
   // 局部更新复选框和打印文字
-  const cb=document.querySelector('.paid-check[onclick*="\''+id+'\'"]');
+  const cb=Array.from(document.querySelectorAll('.tap-row[data-id]')).find(row=>row.dataset.id===id)?.querySelector('.paid-check');
   if(cb){
     cb.checked=order.isPaid;
     const printSpan=cb.parentElement.querySelector('.paid-print-text');
@@ -1932,8 +1946,9 @@ function confirmPriceEdit(){
   if(!canWriteData())return;
   if(!editingOrderId)return;
   const raw=document.getElementById('input-edit-price').value.trim();
+  if(document.getElementById('input-edit-price').validity.badInput){toast('售价不是有效数字');return;}
   const newPrice=raw?Number(raw):0;
-  if(!Number.isFinite(newPrice)||newPrice<0){toast('价格必须是大于等于 0 的有效数字');return;}
+  if(!validMoney(newPrice)){toast('价格必须是0至'+MAX_MONEY+'元的有限数字');return;}
   const order=orders.find(o=>o.id===editingOrderId);
   if(order){
     const previousState=captureDataState();
@@ -1962,7 +1977,7 @@ function openAddModal(){document.getElementById('modal-add').classList.add('show
 function openAddModalForCustomer(customer){
   document.getElementById('modal-add').classList.add('show');showAddStep(1);
   const inp=document.getElementById('input-raw-order');
-  inp.value=customer+' ';
+  inp.value=JSON.stringify(customer)+' ';
   updateOrderHint(inp.value);
   requestAnimationFrame(()=>{requestAnimationFrame(()=>{
     inp.focus();
@@ -1974,7 +1989,7 @@ function showAddStep(n){document.getElementById('add-step1').classList.toggle('a
 function parseAndReview(){
   const raw=document.getElementById('input-raw-order').value;
   const p=parseOrderInput(raw);
-  if(p&&p.error==='negativePrice'){toast('售价不能为负数');return;}
+  if(p&&p.error){toast(p.error);return;}
   if(!p){toast('格式错误！请输入：客户 商品 数量 [售价] [地点]');return;}
   let finalLocation=p.location;
   const badge=document.getElementById('auto-fill-badge');
@@ -1993,10 +2008,12 @@ function confirmAddOrder(){
   const product=document.getElementById('input-confirm-product').value.trim();
   const qty=parseIntegerInput(document.getElementById('input-confirm-qty').value,1);
   const priceRaw=document.getElementById('input-confirm-price').value.trim();
+  if(document.getElementById('input-confirm-price').validity.badInput){toast('售价不是有效数字');return;}
   const sellingPrice=priceRaw?Number(priceRaw):0;
   const location=document.getElementById('input-confirm-location').value.trim();
+  if(customer===SYS_CUSTOMER){toast('这是系统保留名称，不能作为客户名使用');return;}
   if(!customer){toast('请输入客户名称');return;}if(!product){toast('请输入商品名称');return;}if(qty===null){toast('数量必须是正整数');return;}
-  if(!Number.isFinite(sellingPrice)||sellingPrice<0){toast('价格必须是大于等于 0 的有效数字');return;}
+  if(!validMoney(sellingPrice)){toast('价格必须是0至'+MAX_MONEY+'元的有限数字');return;}
   const previousState=captureDataState();
   updateProductMeta(product,location,undefined);
   orders.push({id:genId(),customer,product,qty,sellingPrice,purchased:0,isPaid:false,location});
@@ -2014,6 +2031,8 @@ function closeStockModal(){document.getElementById('modal-stock').classList.remo
 function showStockStep(n){document.getElementById('stock-step1').classList.toggle('active',n===1);document.getElementById('stock-step2').classList.toggle('active',n===2);}
 function previewAllocation(){
   const raw=document.getElementById('input-raw-stock').value;const p=parseStockInput(raw);
+  pendingAlloc=null;
+  if(p&&p.error){toast(p.error);return;}
   if(!p){toast('格式错误！请输入：商品 数量 [单价] [地点]');return;}
   const result=allocatePurchase(p.product,p.qty,p.unitPrice,p.location,p.hasUnitPrice);pendingAlloc=result;
 
@@ -2222,7 +2241,7 @@ function confirmEditProductPrice(){
   const raw=document.getElementById('input-edit-product-price').value.trim();
   if(!raw){toast('请输入采购单价，清零请输入 0');return;}
   const val=Number(raw);
-  if(!Number.isFinite(val)||val<0){toast('单价必须是大于等于 0 的有效数字');return;}
+  if(!validMoney(val)){toast('单价必须是0至'+MAX_MONEY+'元的有限数字');return;}
   const previousState=captureDataState();
   // 默认价仅影响后续建议；历史批次单价和成本保持原样。
   updateProductMeta(product,'',val);
@@ -2314,6 +2333,7 @@ function selectOrderAutocomplete(value){
   const caret=input.selectionStart!=null?input.selectionStart:input.value.length;
   const before=input.value.slice(0,info.wordStart);
   const after=input.value.slice(caret);
+  value=JSON.stringify(value);
   const newVal=before+value+' '+after.replace(/^\s+/,'');
   input.value=newVal;
   const newCaret=(before+value+' ').length;
@@ -2356,6 +2376,7 @@ function selectStockAutocomplete(value){
   const caret=input.selectionStart!=null?input.selectionStart:input.value.length;
   const before=input.value.slice(0,info.wordStart);
   const after=input.value.slice(caret);
+  value=JSON.stringify(value);
   const newVal=before+value+' '+after.replace(/^\s+/,'');
   input.value=newVal;
   const newCaret=(before+value+' ').length;
