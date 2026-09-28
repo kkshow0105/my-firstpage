@@ -6,7 +6,8 @@
 //   - 完全离线时从缓存返回，不影响使用
 // ═══════════════════════════════════════════════════════
 
-const CACHE_NAME = 'shuangbiao-v4';
+const CACHE_PREFIX = 'shuangbiao-';
+const CACHE_NAME = CACHE_PREFIX + 'v4';
 
 // 需要预缓存的资源（相对于 sw.js 所在目录）
 const PRECACHE_URLS = [
@@ -33,7 +34,7 @@ self.addEventListener('activate', event => {
     caches.keys().then(keys =>
       Promise.all(
         keys
-          .filter(key => key !== CACHE_NAME)
+          .filter(key => key.startsWith(CACHE_PREFIX) && key !== CACHE_NAME)
           .map(key => caches.delete(key))
       )
     ).then(() => self.clients.claim())

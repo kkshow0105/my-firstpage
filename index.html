@@ -147,7 +147,12 @@ body{
 }
 
 /* Table */
-table{width:100%;border-collapse:collapse}
+table{width:100%;border-collapse:collapse;table-layout:fixed}
+/* 名称不能撑宽表格或挤掉右侧数字与控件。 */
+td:first-child{overflow-wrap:anywhere}
+.customer-card-header>span,.location-toggle>div:first-child{min-width:0;overflow-wrap:anywhere}
+.customer-card-header{gap:8px}
+.btn-add-for-customer,.location-toggle>div:last-child{flex-shrink:0}
 th{
   font-size:10px;font-weight:600;color:var(--secondary);
   text-transform:uppercase;padding:6px 4px;text-align:left;
@@ -292,12 +297,8 @@ tr.row-done{background:#f5fff7}
 .autocomplete-item:active{background:#f0f0f5}
 .autocomplete-item .ac-icon{font-size:13px;opacity:0.6}
 
-/* Note preview in table cell */
-.note-preview{
-  font-size:10px;color:var(--orange);max-width:60px;
-  overflow:hidden;text-overflow:ellipsis;white-space:nowrap;
-  display:block;margin-top:1px;
-}
+/* 备注只在打印模式展开，不改变普通表格布局。 */
+.note-preview{display:none}
 
 /* Finance panel — two columns, each: label+sub left, value right */
 .finance-panel-modal{
@@ -496,9 +497,14 @@ tr.sys-stock td{color:#856404}
     padding:16px 0 12px;border-bottom:2px solid #b0b8c0;margin-bottom:14px;color:#1c1c1e;
   }
 
-  .section{display:block!important;margin:0 10px 20px;page-break-before:always}
-  .section:first-of-type{page-break-before:avoid}
-  .section:last-of-type{page-break-after:avoid}
+  .section{display:block!important;margin:0 10px 20px;break-before:auto;page-break-before:auto}
+  /* 只覆盖打印展示，不修改搜索框、行内筛选或展开状态。 */
+  #customer-table-container .card{display:block!important}
+  #customer-table-container tr,#product-table-container tr{display:table-row!important}
+  .print-title,.section::before,.card-header,.location-toggle{break-after:avoid;page-break-after:avoid}
+  tr{break-inside:avoid;page-break-inside:avoid}
+  tr:has(.note-preview){break-inside:auto;page-break-inside:auto}
+  @page{size:A4;margin:12mm}
 
   .section::before{
     display:block;content:attr(data-print-label);
@@ -507,7 +513,7 @@ tr.sys-stock td{color:#856404}
   }
 
   .card{
-    break-inside:avoid;page-break-inside:avoid;
+    break-inside:auto;page-break-inside:auto;overflow:visible;
     box-shadow:none;margin-bottom:10px;border-radius:0;border:1px solid #b0b8c0;
   }
   .card:nth-child(odd){background:#f4f7f9;border-left:4px solid #7b9db8}
@@ -526,7 +532,7 @@ tr.sys-stock td{color:#856404}
     padding:5px 3px!important;border-bottom:2px solid #b0b8c0!important;
   }
   td{
-    padding:5px 3px!important;font-size:10px!important;
+    padding:4px 3px!important;font-size:10px!important;
     border-bottom:1px solid #d4d9df!important;color:#1c1c1e;
   }
 
@@ -544,7 +550,7 @@ tr.sys-stock td{color:#856404}
   .btn-note{display:none!important}
   .btn-add-for-customer{display:none!important}
   /* 备注内容：打印时在商品名下方显示 */
-  .note-preview{display:block!important;font-size:9px;color:#b05000}
+  .note-preview{display:block!important;font-size:9px;color:#704000;white-space:pre-wrap;overflow-wrap:anywhere;margin-top:3px;font-weight:400}
 
   .customer-balance-row{background:#eef1f5!important;border-top:2px solid #b0b8c0!important}
   .customer-balance-row td{font-weight:700!important;font-size:12px!important}
@@ -556,7 +562,7 @@ tr.sys-stock td{color:#856404}
   .tag{background:#e9f0ff!important;color:#1565c0!important;font-size:8px}
 
   .location-body{display:block!important;margin-top:0}
-  .location-group{break-inside:avoid;page-break-inside:avoid;margin-bottom:12px}
+  .location-group{break-inside:auto;page-break-inside:auto;margin-bottom:12px}
   .location-toggle{
     background:#f0f3f5!important;border-radius:0;box-shadow:none;
     border:1px solid #b0b8c0;border-bottom:none;
@@ -564,7 +570,7 @@ tr.sys-stock td{color:#856404}
   }
 
   .table-dense th{font-size:9px!important;padding:6px 4px!important}
-  .table-dense td{font-size:10px!important;padding:6px 4px!important}
+  .table-dense td{font-size:10px!important;padding:4px 4px!important}
 
   .finance-label{color:#555!important}
   .finance-value{color:#d32f2f!important}
@@ -1517,6 +1523,9 @@ function calcCustomerBalance(customer, items){
   const balance=totalAmt-paidAmt;
   return{balance};
 }
+function printNote(label,note){
+  return typeof note==='string'&&note.trim()?'<div class="note-preview">'+esc(label+'：'+note)+'</div>':'';
+}
 function renderCustomers(){
   const container=document.getElementById('customer-table-container');
   const realOrders=orders.filter(o=>o.customer!==SYS_CUSTOMER);
@@ -1556,7 +1565,7 @@ function renderCustomers(){
 
       const idArg=escInlineArg(item.id);
       html+='<tr class="tap-row '+rowClass+'" data-id="'+escAttr(item.id)+'">';
-      html+='<td style="font-weight:600"><span class="cell-clickable" onclick="event.stopPropagation();openEditFieldModal(\''+idArg+'\',\'product\')" title="点击修改商品名">'+esc(item.product)+'</span></td>';
+      html+='<td style="font-weight:600"><span class="cell-clickable" onclick="event.stopPropagation();openEditFieldModal(\''+idArg+'\',\'product\')" title="点击修改商品名">'+esc(item.product)+'</span>'+printNote('订单备注',item.note)+printNote('商品备注',getProductMeta(item.product).note)+'</td>';
       html+='<td class="c-num"><span class="cell-clickable" onclick="event.stopPropagation();openEditFieldModal(\''+idArg+'\',\'qty\')" title="点击修改数量">'+item.qty+'</span></td>';
       html+='<td class="c-price-col" style="font-weight:600;color:'+(sp>0?'var(--text)':'var(--secondary)')+'"><span class="price-clickable" onclick="event.stopPropagation();openPriceModal(\''+idArg+'\')" title="点击修改售价">'+priceStr+'</span></td>';
       html+='<td class="c-paid"><span class="paid-cell"><input type="checkbox" class="paid-check" '+(item.isPaid?'checked':'')+' onclick="event.stopPropagation();togglePaid(\''+idArg+'\')" title="标记已收款"><span class="paid-print-text" style="color:'+(item.isPaid?'var(--green)':'var(--secondary)')+'">'+(item.isPaid?'已付':'未付')+'</span></span></td>';
@@ -1589,11 +1598,14 @@ function renderProducts(){
   const summary=getProductSummaryByLocation();
   const container=document.getElementById('product-table-container');
   const chipsEl=document.getElementById('product-summary-chips');
-  let totalKinds=0,totalGap=0,urgentKinds=0;
+  const allKinds=new Set(),gapKinds=new Set();let totalGap=0;
   for(const loc of summary){
-    if(loc.isStockSection)continue; // 系统库存不计入待采购统计
-    for(const p of loc.products){totalKinds++;const g=p.total-p.purchased;if(g>0){urgentKinds++;totalGap+=g;}}
+    for(const p of loc.products){
+      allKinds.add(p.product);
+      if(!loc.isStockSection){const gap=p.total-p.purchased;if(gap>0){gapKinds.add(p.product);totalGap+=gap;}}
+    }
   }
+  const totalKinds=allKinds.size,urgentKinds=gapKinds.size;
   const realSummary=summary.filter(l=>!l.isStockSection);
   chipsEl.innerHTML=
     '<div class="summary-chip"><div class="num">'+realSummary.length+'</div><div class="lbl">采购地点</div></div>'+
@@ -1624,7 +1636,7 @@ function renderProducts(){
         const prodJs=escInlineArg(p.product);
         const pNote=(getProductMeta(p.product).note||'').trim();
         html+='<tr class="row-done">';
-        html+='<td style="font-weight:600">'+esc(p.product)+'</td>';
+        html+='<td style="font-weight:600">'+esc(p.product)+printNote('商品备注',getProductMeta(p.product).note)+'</td>';
         html+='<td class="col-num"><span class="cell-clickable prod-purchased-click" onclick="event.stopPropagation();openEditPurchasedModal(\''+prodJs+'\',\'__stock__\','+p.total+')" title="点击修改库存量" style="color:var(--orange);font-weight:700">'+p.total+'</span></td>';
         html+='<td class="col-price" style="font-size:11px;font-weight:600"><span class="cell-clickable prod-price-click" onclick="event.stopPropagation();openEditProductPriceModal(\''+prodJs+'\')" title="点击修改默认采购价（不改变历史）">'+priceStr+'</span></td>';
         html+='<td class="col-gap"><span style="color:var(--orange);font-size:11px">库存</span></td>';
@@ -1640,7 +1652,7 @@ function renderProducts(){
         const priceStr=price>0?'¥'+price.toFixed(2):'<span style="color:#ccc">-</span>';
         const prodJs=escInlineArg(p.product);
         html+='<tr class="'+rowClass+'">';
-        html+='<td style="font-weight:600">'+esc(p.product)+'</td>';
+        html+='<td style="font-weight:600">'+esc(p.product)+printNote('商品备注',getProductMeta(p.product).note)+'</td>';
         html+='<td class="col-num">'+p.total+'</td>';
         // 已采 — 可点击修改
         html+='<td class="col-num"><span class="cell-clickable prod-purchased-click" onclick="event.stopPropagation();openEditPurchasedModal(\''+prodJs+'\',\''+escInlineArg(loc.location)+'\','+p.purchased+')" title="点击修改已采数量">'+p.purchased+'</span></td>';
@@ -1700,12 +1712,11 @@ function closeFinanceModal(){
   document.getElementById('modal-finance').classList.remove('show');
 }
 
+function getPurchaseCost(product){
+  return purchaseLogs.reduce((sum,log)=>sum+(product===undefined||log.product===product?log.totalCost:0),0);
+}
 function renderFinance(){
-  // 累计采购花费 = Σ purchaseLogs[i].totalCost
-  let totalSpend=0;
-  for(const log of purchaseLogs){
-    totalSpend+=log.totalCost||0;
-  }
+  const totalSpend=getPurchaseCost();
   // 销售额 = Σ 所有客户订单 已采购数量 × 售价
   let totalSales=0;
   for(const o of orders){
@@ -2213,7 +2224,7 @@ function confirmEditPurchased(){
 
   if(!persistDataState(previousState,[ORDERS_KEY,LOGS_KEY]))return;
   renderAll();closeEditPurchasedModal();
-  toast('✅ '+product+' 已采更新为 '+newVal+(price>0?'，花费 ¥'+(newVal*price).toFixed(2):''));
+  toast('✅ '+product+' 已采更新为 '+newVal+'，该商品采购成本 ¥'+getPurchaseCost(product).toFixed(2));
 }
 
 // ═══════════════════════════════════════════════════════

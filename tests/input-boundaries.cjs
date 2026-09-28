@@ -58,7 +58,7 @@ async function main(){
  const texts=['double"quote',"single'quote",'<','>','&','x" onpointerover="window.injected=1',"x');window.injected=1;//",'<script>window.injected=1</script>','javascript:window.injected=1','onclick','onpointerover','反斜杠\\'];
  for(const value of texts)await record('09-text-'+value,async()=>{
  await fresh();const x=clone(sample);x.orders[0].customer=value;x.orders[0].product=value;x.orders[0].location=value;x.orders[0].note=value+'\n第二行';x.purchaseLogs[0].product=value;x.purchaseLogs[0].location=value;x.productMeta=Object.fromEntries([[value,{lastLocation:value,lastPrice:10,note:value+'\n第二行'}]]);await imp(x);
- assert.equal(await a.eval('orders[0].product'),value);assert.equal(await a.eval("document.querySelector('.tap-row td').textContent"),value);
+ assert.equal(await a.eval('orders[0].product'),value);assert.equal(await a.eval("document.querySelector('.tap-row td .cell-clickable').textContent"),value);
  await a.eval("for(const el of document.querySelectorAll('.tap-row,.card'))el.dispatchEvent(new Event('pointerover'));document.querySelector('.tap-row .cell-clickable').click()");assert.equal(await a.eval('editingField.orderId'),'o1');await a.eval("closeEditFieldModal();document.querySelector('.btn-add-for-customer').click()");assert.equal(await a.eval('JSON.parse(document.getElementById("input-raw-order").value.trim())'),value);await a.eval('closeAddModal();renderProducts()');
  assert.equal(await a.eval('window.injected||0'),0);assert.equal(await a.eval("document.querySelectorAll('[onpointerover]').length"),0);assert.equal(await a.eval("document.querySelectorAll('.tap-row').length"),1);return{dataOnly:true};
  });
