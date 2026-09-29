@@ -7,7 +7,7 @@
 // ═══════════════════════════════════════════════════════
 
 const CACHE_PREFIX = 'shuangbiao-';
-const CACHE_NAME = CACHE_PREFIX + 'v4';
+const CACHE_NAME = CACHE_PREFIX + 'v5';
 
 // 需要预缓存的资源（相对于 sw.js 所在目录）
 const PRECACHE_URLS = [
@@ -22,8 +22,15 @@ self.addEventListener('install', event => {
     caches.open(CACHE_NAME).then(cache => {
       // 核心资源必须全部成功；addAll 原子写入，失败时拒绝安装，保留旧 worker 和缓存。
       return cache.addAll(PRECACHE_URLS);
-    }).then(() => self.skipWaiting())
+    })
   );
+});
+
+// ── message：用户点击“立即更新”后才跳过等待 ────────────
+self.addEventListener('message', event => {
+  if (event.data && event.data.type === 'SKIP_WAITING') {
+    event.waitUntil(self.skipWaiting());
+  }
 });
 
 // ── activate：清理旧版本缓存 ────────────────────────────

@@ -342,6 +342,19 @@ tr.row-done{background:#f5fff7}
 .btn-add{background:var(--blue);color:#fff;box-shadow:0 4px 16px rgba(0,122,255,0.35)}
 .btn-stock{background:var(--orange);color:#fff;box-shadow:0 4px 16px rgba(255,149,0,0.3)}
 
+/* 新版本提示位于主要操作上方，打印时隐藏。 */
+.update-banner{
+  position:fixed;bottom:calc(76px + var(--safe-bottom));left:16px;right:16px;
+  max-width:520px;margin:0 auto;z-index:30;
+  display:flex;align-items:center;gap:12px;padding:12px 14px;
+  background:var(--card-bg);border:1px solid var(--separator);border-radius:var(--radius);
+  box-shadow:0 2px 12px rgba(0,0,0,0.12);font-size:14px;font-weight:600;
+}
+.update-banner[hidden]{display:none}
+.update-banner>span{flex:1;min-width:0}
+.update-banner button{flex-shrink:0;border:none;border-radius:8px;padding:9px 12px;font-size:13px;cursor:pointer}
+.update-banner button:disabled{opacity:0.6}
+
 /* Modal */
 .modal-overlay{
   display:none;position:fixed;inset:0;
@@ -480,7 +493,7 @@ tr.sys-stock td{color:#856404}
    ══════════════════════════════════════════════════════ */
 @media print{
   .top-bar,.menu-wrapper,.dropdown,.btn-menu,.btn-search,.search-wrap,.search-clear,
-  .bottom-bar,
+  .bottom-bar,.update-banner,
   .modal-overlay,.toast,.btn-sm,.btn-del,.btn-plus1,.cell-actions,
   .location-toggle .arrow,
   .paid-check{
@@ -609,7 +622,7 @@ tr.sys-stock td{color:#856404}
         <div class="dropdown-item" onclick="openExportModal()"><span class="d-icon">📥</span> 导出备份数据</div>
         <div class="dropdown-item" onclick="openImportModal()"><span class="d-icon">📤</span> 导入备份数据</div>
         <div class="dropdown-item" onclick="clearAllData()" style="color:var(--red)"><span class="d-icon">🗑️</span> 清空所有数据</div>
-        <div class="dropdown-version">v1.0.0</div>
+        <div class="dropdown-version">v1.1.0</div>
       </div>
     </div>
   </div>
@@ -656,6 +669,12 @@ tr.sys-stock td{color:#856404}
 <div class="bottom-bar">
   <button class="bottom-btn btn-add" onclick="openAddModal()">＋ 添加订单</button>
   <button class="bottom-btn btn-stock" onclick="openStockModal()">📥 采购入库</button>
+</div>
+
+<div id="update-banner" class="update-banner" hidden role="status" aria-live="polite">
+  <span>发现新版本</span>
+  <button id="btn-update-now" class="btn-primary" onclick="updatePwaNow()">立即更新</button>
+  <button class="btn-ghost" onclick="dismissPwaUpdate()">稍后</button>
 </div>
 
 <!-- ============ Modal: 添加订单 ============ -->
@@ -2497,14 +2516,58 @@ document.getElementById('searchInput').addEventListener('input',function(){
 // ═══════════════════════════════════════════════════════
 // PWA：注册 Service Worker（缓存优先，支持完全离线）
 // ═══════════════════════════════════════════════════════
+let pwaRegistration=null,waitingUpdate=null,dismissedUpdate=null;
+let updateRequested=false,updateReloaded=false;
+function showPwaUpdate(reg){
+  const worker=reg.waiting;
+  // 首次安装没有旧 controller；只有完整安装成功的 waiting worker 才能提示。
+  if(!navigator.serviceWorker.controller||!worker||worker.state!=='installed'||worker===dismissedUpdate)return;
+  waitingUpdate=worker;
+  document.getElementById('update-banner').hidden=false;
+}
+function dismissPwaUpdate(){
+  dismissedUpdate=waitingUpdate;
+  document.getElementById('update-banner').hidden=true;
+}
+function updatePwaNow(){
+  if(updateRequested)return;
+  const worker=pwaRegistration?.waiting;
+  if(!worker||worker!==waitingUpdate||worker.state!=='installed'){
+    document.getElementById('update-banner').hidden=true;return;
+  }
+  // 恢复保护中的操作前快照可能仅在内存中，不能用更新刷新丢掉它。
+  if(dataProtection){toast('请先导出恢复资料，恢复记账后再更新');return;}
+  updateRequested=true;
+  const button=document.getElementById('btn-update-now');
+  button.disabled=true;button.textContent='正在更新…';
+  try{worker.postMessage({type:'SKIP_WAITING'});}
+  catch(err){updateRequested=false;button.disabled=false;button.textContent='立即更新';toast('更新未启动，请稍后重试');}
+}
 if('serviceWorker' in navigator){
-  window.addEventListener('load', function(){
-    navigator.serviceWorker.register('./sw.js', {scope:'./'})
+  navigator.serviceWorker.addEventListener('controllerchange',function(){
+    // 首次安装和未点击更新时不刷新；同一页面最多刷新一次。
+    if(!updateRequested||updateReloaded)return;
+    updateReloaded=true;
+    location.reload();
+  });
+  window.addEventListener('load',function(){
+    navigator.serviceWorker.register('./sw.js',{scope:'./'})
       .then(function(reg){
-        console.log('[SW] 注册成功，scope:', reg.scope);
+        pwaRegistration=reg;
+        const watchInstalling=()=>{
+          const worker=reg.installing;
+          if(!worker)return;
+          worker.addEventListener('statechange',()=>{
+            if(worker.state==='installed')showPwaUpdate(reg);
+          });
+        };
+        reg.addEventListener('updatefound',watchInstalling);
+        watchInstalling();
+        showPwaUpdate(reg); // 包括打开页面前已经 waiting 的版本。
+        console.log('[SW] 注册成功，scope:',reg.scope);
       })
       .catch(function(err){
-        console.log('[SW] 注册失败（本地 file:// 环境不支持，可忽略）:', err.message);
+        console.log('[SW] 注册失败（本地 file:// 环境不支持，可忽略）:',err.message);
       });
   });
 }
