@@ -20,10 +20,8 @@ const PRECACHE_URLS = [
 self.addEventListener('install', event => {
   event.waitUntil(
     caches.open(CACHE_NAME).then(cache => {
-      // 逐个缓存，单个失败不影响整体
-      return Promise.allSettled(
-        PRECACHE_URLS.map(url => cache.add(url).catch(() => {}))
-      );
+      // 核心资源必须全部成功；addAll 原子写入，失败时拒绝安装，保留旧 worker 和缓存。
+      return cache.addAll(PRECACHE_URLS);
     }).then(() => self.skipWaiting())
   );
 });
