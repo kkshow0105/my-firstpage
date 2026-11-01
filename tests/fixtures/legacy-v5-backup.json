@@ -1,0 +1,107 @@
+{
+  "version": 1,
+  "exportedAt": "2026-11-01T02:00:00.000Z",
+  "orders": [
+    {
+      "id": "test_order_01",
+      "customer": "测试客户A",
+      "product": "模拟面膜",
+      "qty": 3,
+      "sellingPrice": 40,
+      "purchased": 3,
+      "location": "模拟百货店"
+    },
+    {
+      "id": "test_order_02",
+      "customer": "测试客户A",
+      "product": "模拟饼干",
+      "qty": 2,
+      "sellingPrice": 25,
+      "purchased": 1,
+      "location": "模拟超市"
+    },
+    {
+      "id": "test_order_03",
+      "customer": "测试客户B",
+      "product": "模拟面膜",
+      "qty": 2,
+      "sellingPrice": 40,
+      "purchased": 2,
+      "location": "模拟免税店"
+    },
+    {
+      "id": "test_order_04",
+      "customer": "测试客户B",
+      "product": "模拟维生素",
+      "qty": 4,
+      "sellingPrice": 60,
+      "purchased": 2,
+      "location": "模拟药店"
+    },
+    {
+      "id": "test_order_05",
+      "customer": "测试客户C",
+      "product": "模拟茶包",
+      "qty": 3,
+      "sellingPrice": 20,
+      "purchased": 0,
+      "location": "模拟超市"
+    },
+    {
+      "id": "test_stock_01",
+      "customer": "【系统库存】",
+      "product": "模拟面膜",
+      "qty": 2,
+      "sellingPrice": 0,
+      "purchased": 2,
+      "location": "模拟免税店"
+    }
+  ],
+  "purchaseLogs": [
+    {
+      "id": "test_purchase_01",
+      "product": "模拟面膜",
+      "qty": 7,
+      "unitPrice": 20,
+      "totalCost": 140,
+      "location": "模拟免税店",
+      "timestamp": 1793325600000
+    },
+    {
+      "id": "test_purchase_02",
+      "product": "模拟饼干",
+      "qty": 1,
+      "unitPrice": 10,
+      "totalCost": 10,
+      "location": "模拟超市",
+      "timestamp": 1793326500000
+    },
+    {
+      "id": "test_purchase_03",
+      "product": "模拟维生素",
+      "qty": 2,
+      "unitPrice": 30,
+      "totalCost": 60,
+      "location": "模拟药店",
+      "timestamp": 1793327400000
+    }
+  ],
+  "productMeta": {
+    "模拟面膜": {
+      "lastLocation": "模拟免税店",
+      "lastPrice": 20
+    },
+    "模拟饼干": {
+      "lastLocation": "模拟超市",
+      "lastPrice": 10
+    },
+    "模拟维生素": {
+      "lastLocation": "模拟药店",
+      "lastPrice": 30
+    },
+    "模拟茶包": {
+      "lastLocation": "模拟超市",
+      "lastPrice": 0
+    }
+  }
+}

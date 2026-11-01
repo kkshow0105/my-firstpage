@@ -36,7 +36,8 @@ async function main(){
  }
  async function imp(value,raw=false){
    await a.eval('handleImportFile({target:{files:[new File(['+JSON.stringify(raw?value:JSON.stringify(value))+"],'test.json')],value:''}})");
-   await sleep(80);
+   await sleep(100);
+   await a.eval("if(pendingImport){if(pendingImport.kind==='legacy'){document.getElementById('import-trip-target').value=activeTripId||'__new__';document.getElementById('import-trip-name').value='恢复账本';updateImportSummary();}confirmImportBackup();}");
  }
  async function inject(source){return(await a.send('Page.addScriptToEvaluateOnNewDocument',{source})).identifier;}
  async function reload(){await a.send('Page.reload');await sleep(140);}
@@ -64,7 +65,7 @@ async function main(){
  });
  await record('normal-download-import',async()=>{
    const [backup]=await downloadRecovery('normal-download','doExportFile()');
-   assert.equal(backup.version,2);await fresh();await imp(backup);
+   assert.equal(backup.version,3);await fresh();await imp(backup);
    assert.equal(await a.eval('!!dataProtection'),false);
    assert.equal(await a.eval('orders[0].isPaid'),true);
    assert.equal(await a.eval("getCurrentStock('X')"),3);
@@ -179,35 +180,24 @@ async function main(){
    await fresh(legacy);await removeInject(inj);await a.eval("localStorage.setItem(ORDERS_KEY,'[]')");
    const before=await a.eval(rawExpr);await reload();await protectedUnchanged(before);return{conflictProtected:true};
  });
- // 普通保存失败及回滚本身失败。
- for(const failure of [1,2,3])await record('save-single-failure-'+failure,async()=>{
-   await fresh(seedOf(sample));const before=await a.eval(rawExpr),mem=await a.eval('JSON.stringify(captureDataState())');
-   await a.eval("var nativeSet=Storage.prototype.setItem;var calls=0;Storage.prototype.setItem=function(k,v){if(++calls==="+failure+")throw Error('injected');return nativeSet.call(this,k,v)}");
-   await imp({version:2,orders:[],purchaseLogs:[],productMeta:{}});
-   assert.equal(await a.eval(rawExpr),before);assert.equal(await a.eval('JSON.stringify(captureDataState())'),mem);
-   assert.equal(await a.eval('!!dataProtection'),false);await a.eval('Storage.prototype.setItem=nativeSet');return{rolledBack:true};
- });
- for(const failure of [1,2,3])await record('save-continuous-failure-'+failure,async()=>{
-   await fresh(seedOf(sample));const before=await a.eval(rawExpr),mem=await a.eval('JSON.stringify(captureDataState())');
-   await a.eval("var nativeSet=Storage.prototype.setItem;var calls=0;Storage.prototype.setItem=function(k,v){if(++calls>="+failure+")throw Error('injected continuous');return nativeSet.call(this,k,v)}");
-   await imp({version:2,orders:[],purchaseLogs:[],productMeta:{}});
-   assert.equal(await a.eval('JSON.stringify(captureDataState())'),mem);
-   if(failure===1){assert.equal(await a.eval(rawExpr),before);assert.equal(await a.eval('!!dataProtection'),false);}
-   else{
-     assert.equal(await a.eval('!!dataProtection'),true);assert.equal(await a.eval('JSON.stringify(dataProtection.snapshot)'),mem);
-     const partial=await a.eval(rawExpr);await a.eval("add('Blocked','X',1);clearAllData()");assert.equal(await a.eval(rawExpr),partial);
-     assert((await a.eval('dataProtection.message')).includes('部分改变'));
-   }
-   await a.eval('Storage.prototype.setItem=nativeSet');return{memoryPreserved:true,protected:failure>1};
+ // 新版单键原子保存：分别注入安全副本和正式账本写入故障。
+ for(const key of ['RESTORE_SAFETY_KEY','BOOK_KEY'])for(const continuous of [false,true])await record('save-atomic-failure-'+key+'-'+continuous,async()=>{
+   await fresh(seedOf(sample));const before=await a.eval('JSON.stringify(readWatchedRaw())'),mem=await a.eval('JSON.stringify(captureDataState())');
+   try{
+     await a.eval("var nativeSet=Storage.prototype.setItem;var failed=false;Storage.prototype.setItem=function(k,v){if(k==="+key+"&&("+continuous+"||!failed)){failed=true;throw Error('injected')}return nativeSet.call(this,k,v)}");
+     await imp({version:2,orders:[],purchaseLogs:[],productMeta:{}});
+     assert.equal(await a.eval('JSON.stringify(readWatchedRaw())'),before);assert.equal(await a.eval('JSON.stringify(captureDataState())'),mem);assert.equal(await a.eval('!!dataProtection'),false);
+     return{bookUnchanged:true,noPartialState:true};
+   }finally{await a.eval('Storage.prototype.setItem=nativeSet');}
  });
  await record('raw-snapshot-download-and-restore',async()=>{
    await fresh(seedOf(sample));const mem=await a.eval('JSON.stringify(captureDataState())');
-   await a.eval("var nativeSet=Storage.prototype.setItem;var calls=0;Storage.prototype.setItem=function(k,v){if(++calls>=2)throw Error('injected');return nativeSet.call(this,k,v)}");
-   await imp({version:2,orders:[],purchaseLogs:[],productMeta:{}});await a.eval('Storage.prototype.setItem=nativeSet');
+   await a.eval("localStorage.setItem(BOOK_KEY,'{broken');queueStorageSync()");await waitFor('!!dataProtection',true);
    const values=await downloadRecovery('recovery-download','exportRecoveryRaw();exportRecoverySnapshot()');
-   assert.equal(values.length,2);const backup=values.find(x=>x.version===2),raw=values.find(x=>x.recoveryFormat===1);
-   assert(backup&&raw);assert.equal(JSON.stringify({orders:backup.orders,purchaseLogs:backup.purchaseLogs,productMeta:backup.productMeta}),mem);
-   assert.equal(raw.raw[O],'[]');await imp(backup);assert.equal(await a.eval('!!dataProtection'),false);
+   assert.equal(values.length,2);const backup=values.find(x=>x.version===3),raw=values.find(x=>x.recoveryFormat===1);
+   assert(backup&&raw);const trip=backup.trips.find(t=>t.id===backup.activeTripId);
+   assert.equal(JSON.stringify({orders:trip.orders,purchaseLogs:trip.purchaseLogs,productMeta:trip.productMeta}),mem);
+   assert.equal(raw.raw.dual_table_trip_book_v1,'{broken');await imp(backup);assert.equal(await a.eval('!!dataProtection'),false);
    assert.equal(await a.eval('JSON.stringify(captureDataState())'),mem);await reload();assert.equal(await a.eval('!!dataProtection'),false);
    return{downloadsVerified:true,restored:true};
  });
@@ -217,14 +207,14 @@ async function main(){
    await imp(sample);assert.equal(await a.eval('!!dataProtection'),false);assert.equal(await a.eval('orders.length'),1);
    return{rawPreserved:true,restored:true};
  });
- for(const continuous of [false,true])await record('recovery-fails-'+(continuous?'rollback':'single'),async()=>{
-   await fresh({[O]:'{broken',[L]:[],[M]:{}});const before=await a.eval(rawExpr),raw=await a.eval('JSON.stringify(dataProtection.raw)');
-   await a.eval("var nativeSet=Storage.prototype.setItem;var calls=0;Storage.prototype.setItem=function(k,v){if(++calls"+(continuous?'>=2':'===2')+")throw Error('recovery injected');return nativeSet.call(this,k,v)}");
-   await imp(sample);assert.equal(await a.eval('!!dataProtection'),true);
-   assert.equal(await a.eval('JSON.stringify(dataProtection.raw)'),raw);
-   if(continuous)assert((await a.eval('dataProtection.message')).includes('严重保存错误'));
-   else assert.equal(await a.eval(rawExpr),before);
-   await a.eval('Storage.prototype.setItem=nativeSet');return{originalRawRetained:true};
+ for(const key of ['RESTORE_SAFETY_KEY','BOOK_KEY'])await record('recovery-fails-'+key,async()=>{
+   await fresh({[O]:'{broken',[L]:[],[M]:{}});const before=await a.eval('JSON.stringify(readWatchedRaw())'),raw=await a.eval('JSON.stringify(dataProtection.raw)');
+   try{
+     await a.eval("var nativeSet=Storage.prototype.setItem;Storage.prototype.setItem=function(k,v){if(k==="+key+")throw Error('recovery injected');return nativeSet.call(this,k,v)}");
+     await imp(sample);assert.equal(await a.eval('!!dataProtection'),true);
+     assert.equal(await a.eval('JSON.stringify(dataProtection.raw)'),raw);assert.equal(await a.eval('JSON.stringify(readWatchedRaw())'),before);
+     return{originalRawRetained:true,noPartialRecovery:true};
+   }finally{await a.eval('Storage.prototype.setItem=nativeSet');}
  });
  // 多窗口：等待跨键写完；持续损坏则保留上次完整快照。
  await record('storage-event-preserves-snapshot',async()=>{
@@ -246,16 +236,14 @@ async function main(){
    }finally{await b.send('Page.close');b.ws.close();}
    return{synced:true};
  });
- await record('sync-intermediate-state-pauses-writes',async()=>{
-   await fresh();await a.eval("add('A','X',3)");const b=await tab();await a.send('Page.bringToFront');
+ await record('old-window-write-pauses-new-book',async()=>{
+   await fresh(seedOf(sample));const book=await a.eval('localStorage.getItem(BOOK_KEY)'),mem=await a.eval('JSON.stringify(captureDataState())');const b=await tab();
    try{
-     await b.eval("localStorage.setItem('dual_table_purchase_logs_v6',JSON.stringify([{id:'p',product:'X',qty:1,unitPrice:10,totalCost:10,location:'',timestamp:1}]))");
-     await sleep(80);assert.equal(await a.eval('!!dataProtection'),false);assert.equal(await a.eval('storageSyncPending'),true);
-     const before=await a.eval(rawExpr);await a.eval("add('Blocked','Y',2)");assert.equal(await a.eval(rawExpr),before);
-     await b.eval("var rows=JSON.parse(localStorage.getItem('dual_table_orders_v6'));rows[0].purchased=1;localStorage.setItem('dual_table_orders_v6',JSON.stringify(rows))");
-     await waitFor('storageSyncPending',false);assert.equal(await a.eval('!!dataProtection'),false);assert.equal(await a.eval('orders[0].purchased'),1);
+     await b.eval("localStorage.setItem('dual_table_purchase_logs_v6','[]')");await waitFor('!!dataProtection',true);
+     await a.eval("add('Blocked','Y',2)");assert.equal(await a.eval('localStorage.getItem(BOOK_KEY)'),book);
+     assert.equal(await a.eval('JSON.stringify(dataProtection.snapshot)'),mem);assert((await a.eval('dataProtection.message')).includes('旧版窗口'));
    }finally{await b.send('Page.close');b.ws.close();}
-   return{pausedUntilStable:true};
+   return{oldWindowConflictProtected:true};
  });
  async function restartBrowser(){
    await a.send('Browser.close');a.ws.close();await sleep(400);
@@ -293,11 +281,13 @@ async function main(){
 
 
 
- for(const failure of [1,2,3])await record('purchase-save-failure-'+failure,async()=>{
+ for(const continuous of [false,true])await record('purchase-save-failure-'+continuous,async()=>{
    await fresh(seedOf(sample));const before=await a.eval(rawExpr),mem=await a.eval('JSON.stringify(captureDataState())');
-   await a.eval("var nativeSet=Storage.prototype.setItem;var calls=0;Storage.prototype.setItem=function(k,v){if(++calls==="+failure+")throw Error('purchase injected');return nativeSet.call(this,k,v)};buy('X',2,10)");
-   assert.equal(await a.eval(rawExpr),before);assert.equal(await a.eval('JSON.stringify(captureDataState())'),mem);
-   assert.equal(await a.eval('!!dataProtection'),false);await a.eval('Storage.prototype.setItem=nativeSet');return{rolledBack:true};
+   try{
+     await a.eval("var nativeSet=Storage.prototype.setItem;var failed=false;Storage.prototype.setItem=function(k,v){if(k===BOOK_KEY&&("+continuous+"||!failed)){failed=true;throw Error('purchase injected')}return nativeSet.call(this,k,v)};buy('X',2,10)");
+     assert.equal(await a.eval(rawExpr),before);assert.equal(await a.eval('JSON.stringify(captureDataState())'),mem);assert.equal(await a.eval('!!dataProtection'),false);
+     return{atomicFailureSafe:true};
+   }finally{await a.eval('Storage.prototype.setItem=nativeSet');}
  });
  await record('final-no-page-exceptions',async()=>{assert.equal(pageErrors.length,0,JSON.stringify(pageErrors));return{count:0};});
 

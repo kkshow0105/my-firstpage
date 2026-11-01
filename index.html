@@ -128,6 +128,17 @@ body{
 .dropdown-item .d-icon{font-size:18px;width:24px;text-align:center}
 .dropdown-version{padding:7px 16px 8px;text-align:center;font-size:11px;line-height:1;color:var(--secondary);user-select:none}
 
+.trip-bar{padding:12px 16px 2px;display:flex;gap:8px;align-items:center}
+.trip-bar label{font-size:12px;color:var(--secondary);flex-shrink:0}
+.trip-bar select,.trip-select{min-width:0;flex:1;width:100%;padding:10px;border:1px solid var(--separator);border-radius:10px;background:#f9f9fb;color:var(--text);font:inherit;font-size:16px}
+.trip-bar button{flex-shrink:0;border:0;border-radius:10px;padding:10px;color:var(--blue);background:#e9f0ff;font-size:14px;cursor:pointer}
+.trip-overview{padding:6px 16px 0;font-size:12px;color:var(--secondary);line-height:1.6;overflow-wrap:anywhere}
+.trip-overview span{display:inline-block;margin-right:10px}
+.trip-actions{display:flex;gap:8px;flex-wrap:wrap;margin-top:12px}
+.trip-actions button{padding:10px 12px;border:0;border-radius:10px;background:var(--bg);color:var(--blue);font:inherit;font-size:14px;cursor:pointer}
+.trip-actions button.danger{color:var(--red)}
+#import-summary{white-space:pre-wrap;overflow-wrap:anywhere;text-align:left}
+
 .print-title{display:none}
 
 /* Section */
@@ -608,6 +619,13 @@ tr.sys-stock td{color:#856404}
 
 <!-- ═══════════ 悬浮吸顶 ═══════════ -->
 <div class="top-bar">
+  <div class="trip-bar">
+    <label for="trip-select">当前行程</label>
+    <select id="trip-select" onchange="switchTrip(this.value)" aria-label="切换行程"></select>
+    <button onclick="openTripManager()">管理</button>
+    <button onclick="createTripFromUI()">＋ 新建</button>
+  </div>
+  <div id="trip-overview" class="trip-overview" aria-live="polite"></div>
   <div class="tabs">
     <div class="tabs-inner">
       <button class="tab active" onclick="switchTab('customers')">👤 客户订单</button>
@@ -621,8 +639,9 @@ tr.sys-stock td{color:#856404}
         <div class="dropdown-item" onclick="doPrint()"><span class="d-icon">🖨️</span> 一键打印清单</div>
         <div class="dropdown-item" onclick="openExportModal()"><span class="d-icon">📥</span> 导出备份数据</div>
         <div class="dropdown-item" onclick="openImportModal()"><span class="d-icon">📤</span> 导入备份数据</div>
-        <div class="dropdown-item" onclick="clearAllData()" style="color:var(--red)"><span class="d-icon">🗑️</span> 清空所有数据</div>
-        <div class="dropdown-version">v1.1.0</div>
+        <div class="dropdown-item" onclick="exportRestoreSafety()"><span class="d-icon">🛟</span> 导出恢复前安全副本</div>
+        <div class="dropdown-item" onclick="clearAllData()" style="color:var(--red)"><span class="d-icon">🗑️</span> 清空当前行程数据</div>
+        <div class="dropdown-version">v2.0.1</div>
       </div>
     </div>
   </div>
@@ -742,10 +761,13 @@ tr.sys-stock td{color:#856404}
 <div class="modal-overlay" id="modal-export">
   <div class="modal-sheet">
     <h2>📥 导出备份数据</h2>
-    <p class="modal-hint">点击下方按钮，将全部数据导出为 JSON 文件<br>可保存到「文件」App / iCloud Drive，或分享给自己备用</p>
+    <p class="modal-hint">导出当前行程，或包含已归档行程的全部账本。<br>可保存到「文件」App / iCloud Drive。</p>
+    <div class="btn-row">
+      <button class="btn btn-primary" onclick="doExportFile('trip')">导出当前行程</button>
+      <button class="btn btn-success" onclick="doExportFile('all-trips')">导出全部行程</button>
+    </div>
     <div class="btn-row">
       <button class="btn btn-ghost" onclick="closeExportModal()">取消</button>
-      <button class="btn btn-primary" onclick="doExportFile()">💾 导出为文件</button>
     </div>
   </div>
 </div>
@@ -754,8 +776,14 @@ tr.sys-stock td{color:#856404}
 <div class="modal-overlay" id="modal-import">
   <div class="modal-sheet">
     <h2>📤 导入备份数据</h2>
-    <p class="modal-hint">选择之前导出的 JSON 备份文件进行恢复<br>当前数据将被覆盖，建议先导出当前数据</p>
+    <p class="modal-hint">先校验文件，再确认目标行程。恢复前自动保留安全副本。</p>
     <input type="file" id="input-import-file" accept=".json,application/json" style="display:none" onchange="handleImportFile(event)">
+    <div id="legacy-import-target" hidden>
+      <div class="form-group"><label for="import-trip-target">旧版备份：请选择导入位置</label><select id="import-trip-target" class="trip-select" onchange="updateImportSummary()"></select></div>
+      <div class="form-group"><label for="import-trip-name">新行程名称（选择新建时填写）</label><input id="import-trip-name" maxlength="120" placeholder="例如：日本行 · 2026年11月" oninput="updateImportSummary()"></div>
+    </div>
+    <p id="import-summary" class="modal-hint"></p>
+    <button id="btn-confirm-import" class="btn btn-warn" style="width:100%" hidden onclick="confirmImportBackup()">确认恢复</button>
     <div class="btn-row">
       <button class="btn btn-ghost" onclick="closeImportModal()">取消</button>
       <button class="btn btn-warn" onclick="document.getElementById('input-import-file').click()">📂 选择备份文件</button>
@@ -878,10 +906,438 @@ tr.sys-stock td{color:#856404}
   </div>
 </div>
 
+<div class="modal-overlay" id="modal-trips">
+  <div class="modal-sheet">
+    <h2>行程管理</h2>
+    <p class="modal-hint">行程之间的订单、采购、库存和收款完全独立。</p>
+    <label style="display:block;margin-bottom:12px"><input id="show-archived-trips" type="checkbox" onchange="renderTripManager()"> 查看已归档行程</label>
+    <div id="trip-manager-list"></div>
+    <div class="btn-row"><button class="btn btn-ghost" onclick="closeTripManager()">关闭</button><button class="btn btn-primary" onclick="createTripFromUI()">新建行程</button></div>
+  </div>
+</div>
+
 <!-- Toast -->
 <div class="toast" id="toast"></div>
 
 <script>
+// 行程存储层。单个 localStorage 项一次提交完整账本，业务分配仍由 index.html 负责。
+const BOOK_KEY='dual_table_trip_book_v1';
+const ACTIVE_TRIP_KEY='dual_table_active_trip_v1';
+const RESTORE_SAFETY_KEY='dual_table_restore_safety_v1';
+const TRIP_STATUSES={'planned':'待出发','active':'进行中','archived':'已归档'};
+let tripBook=null,activeTripId=null,tripEpoch=0,pendingImport=null;
+let importReadToken=0,lastLocalCommit=null;
+
+function newTripId(){
+  return globalThis.crypto?.randomUUID?.()||'trip-'+Date.now().toString(36)+'-'+Array.from(crypto.getRandomValues(new Uint32Array(4)),n=>n.toString(16)).join('-');
+}
+function currentTrip(){return tripBook?.trips.find(t=>t.id===activeTripId);}
+function emptyTrip(name,id=newTripId()){
+  const now=new Date().toISOString();
+  return{id,name,status:'planned',createdAt:now,updatedAt:now,orders:[],purchaseLogs:[],productMeta:{}};
+}
+function validTripName(name){return typeof name==='string'&&name===name.trim()&&name.length>0&&name.length<=120&&!/[\u0000-\u001f\u007f]/.test(name);}
+function validTimestamp(value){return typeof value==='string'&&/^\d{4}-\d\d-\d\dT/.test(value)&&Number.isFinite(Date.parse(value));}
+function validateTrip(input){
+  if(!isRecord(input)||typeof input.id!=='string'||!/^[a-zA-Z0-9_-]{1,100}$/.test(input.id))throw Error('行程ID不合法');
+  if(!validTripName(input.name))throw Error('行程名称须为1至120字，不能含换行或首尾空格');
+  if(!Object.hasOwn(TRIP_STATUSES,input.status))throw Error('未知行程状态');
+  if(!validTimestamp(input.createdAt)||!validTimestamp(input.updatedAt))throw Error('行程时间字段不合法');
+  const state=validateDataState({orders:input.orders,purchaseLogs:input.purchaseLogs,productMeta:input.productMeta});
+  return{id:input.id,name:input.name,status:input.status,createdAt:input.createdAt,updatedAt:input.updatedAt,...state};
+}
+function validateTrips(input){
+  if(!Array.isArray(input)||!input.length)throw Error('必须至少有一个行程');
+  const ids=new Set();
+  return input.map(t=>{
+    const trip=validateTrip(t);
+    if(ids.has(trip.id))throw Error('备份包含重复行程ID：'+trip.id);
+    ids.add(trip.id);return trip;
+  });
+}
+function validateTripBook(input){
+  if(!isRecord(input)||input.schemaVersion!==1)throw Error('无法识别行程存储版本');
+  if(!Number.isSafeInteger(input.revision)||input.revision<0||typeof input.commitId!=='string'||!input.commitId)throw Error('行程存储版本标记损坏');
+  if(!isRecord(input.migration)||input.migration.status!=='complete')throw Error('行程迁移尚未完成');
+  return{schemaVersion:1,revision:input.revision,commitId:input.commitId,migration:cloneData(input.migration),trips:validateTrips(input.trips)};
+}
+function stateSummary(state){
+  const products=[...new Set([...state.orders,...state.purchaseLogs].map(x=>x.product))].sort();
+  return{orders:state.orders.length,purchaseLogs:state.purchaseLogs.length,
+    demand:state.orders.reduce((s,o)=>s+o.qty,0),
+    receivable:state.orders.reduce((s,o)=>s+o.qty*o.sellingPrice,0),
+    unpaid:state.orders.reduce((s,o)=>s+(o.isPaid?0:o.qty*o.sellingPrice),0),
+    cost:state.purchaseLogs.reduce((s,l)=>s+l.totalCost,0),
+    inventory:products.map(p=>({product:p,
+      bought:state.purchaseLogs.filter(l=>l.product===p).reduce((s,l)=>s+l.qty,0),
+      allocated:state.orders.filter(o=>o.product===p).reduce((s,o)=>s+o.purchased,0)}))};
+}
+function initializeData(){
+  try{
+    const reading=readRawData();
+    if(reading.errors.length)throw Error(reading.errors.join('\n'));
+    if(reading.raw[BOOK_KEY]!==null){
+      tripBook=validateTripBook(JSON.parse(reading.raw[BOOK_KEY]));
+      // 基线必须对应刚刚解析的同一份数据，不能随后读取更新版本充当旧内存的基线。
+      storageBaseline=Object.fromEntries(WATCH_KEYS.map(k=>[k,reading.raw[k]]));
+    }else{
+      // 沿用原来的 v5→v6 日志和失败重试，绝不绕开半迁移保护。
+      initializeLegacyData();
+      if(dataProtection)return;
+      const state=captureDataState(),before=stateSummary(state);
+      if(storageBaseline[BOOK_KEY]!==null)throw Error('其他窗口已建立行程账本，请重新打开，不能重复迁移覆盖');
+      const source=decodeStoredState(storageBaseline,DATA_KEYS,{legacy:true});
+      if(JSON.stringify(source)!==JSON.stringify(state))throw Error('原账本在读取期间发生变化，请重新打开后迁移');
+      const hasHistory=[...DATA_KEYS,...V5_KEYS].some(k=>localStorage.getItem(k)!==null);
+      const trip={...emptyTrip(hasHistory?'历史账本':'新行程'),...state};
+      const candidate=validateTripBook({schemaVersion:1,revision:0,commitId:newTripId(),
+        migration:{status:'complete',completedAt:new Date().toISOString(),summary:before},trips:[trip]});
+      if(JSON.stringify(before)!==JSON.stringify(stateSummary(candidate.trips[0])))throw Error('迁移前后汇总不一致');
+      if(WATCH_KEYS.some(k=>localStorage.getItem(k)!==storageBaseline[k]))throw Error('迁移期间其他窗口修改了原账本，请重新打开');
+      // 完成标记与全部数据在同一次原子写入中落盘；失败时没有半套新账本。
+      const serialized=JSON.stringify(candidate);
+      localStorage.setItem(BOOK_KEY,serialized);
+      tripBook=candidate;storageBaseline={...storageBaseline,[BOOK_KEY]:serialized};
+    }
+    const remembered=localStorage.getItem(ACTIVE_TRIP_KEY);
+    activeTripId=tripBook.trips.some(t=>t.id===remembered)?remembered:(tripBook.trips.find(t=>t.status!=='archived')||tripBook.trips[0]).id;
+    restoreDataState(currentTrip());
+  }catch(err){showDataProtection('数据异常/恢复保护：'+err.message,tripBook?captureDataState():null);}
+}
+function invalidateTripDrafts(){
+  tripEpoch++;importReadToken++;pendingImport=null;
+  cancelLongPress();addDraftActive=false;pendingAlloc=null;editingOrderId=null;editingField=null;
+  editingNoteId=null;editingPurchasedCtx=null;editingProductPriceCtx=null;editingProductNote=null;
+  document.querySelectorAll('.modal-overlay.show').forEach(el=>el.classList.remove('show'));
+  document.querySelectorAll('.modal-overlay input:not([type=checkbox]),.modal-overlay textarea').forEach(el=>el.value='');
+  hideOrderAutocomplete();hideStockAutocomplete();
+  isComposing=false;
+}
+function loadTrip(id,{remember=true}={}){
+  const trip=tripBook.trips.find(t=>t.id===id);
+  if(!trip)return false;
+  let remembered=true;
+  if(remember){try{localStorage.setItem(ACTIVE_TRIP_KEY,id);}catch{remembered=false;}}
+  invalidateTripDrafts();activeTripId=id;restoreDataState(trip);
+  document.getElementById('searchInput').value='';document.getElementById('searchWrap').classList.remove('open');
+  document.getElementById('customer-table-container').innerHTML='';document.getElementById('product-table-container').innerHTML='';
+  financeToggle.total=false;financeToggle.sales=false;renderAll();
+  if(!remembered)alert('行程已切换，账本数据未受影响，但未能记住本次选择。请检查浏览器存储空间。');
+  return true;
+}
+function switchTrip(id){
+  if(!canManageTrips()){renderTripHeader();return false;}
+  if(id===activeTripId)return true;
+  return loadTrip(id);
+}
+function canManageTrips(){
+  if(dataProtection){toast('数据处于恢复保护中，请先导出恢复资料');return false;}
+  if(storageSyncPending){toast('正在同步其他窗口的数据，请稍后重试');return false;}
+  return true;
+}
+function readWatchedRaw(){return Object.fromEntries(WATCH_KEYS.map(k=>[k,localStorage.getItem(k)]));}
+function sameRaw(a,b){return !!a&&WATCH_KEYS.every(k=>a[k]===b[k]);}
+function commitTripBook(candidate,{recovery=false,safety=false,expectedRaw=null}={}){
+  if(dataProtection&&!recovery)return false;
+  try{
+    const validated=validateTripBook(candidate),observed=readWatchedRaw();
+    if(!sameRaw(observed,expectedRaw||storageBaseline)){
+      queueStorageSync();toast('其他窗口已有新数据，本次操作未保存，请重新确认');return false;
+    }
+    if(tripBook?.revision===Number.MAX_SAFE_INTEGER)throw Error('存储修订号超出范围，请导出备份后恢复');
+    validated.revision=(tripBook?.revision||0)+1;validated.commitId=newTripId();
+    const serialized=JSON.stringify(validated);
+    if(safety){
+      // 安全副本写入失败则取消恢复；不能牺牲原账本来腾空间。
+      const prior={savedAt:new Date().toISOString(),backup:tripBook?makeAllTripsBackup(tripBook):null,raw:observed,
+        recoveryRaw:dataProtection?cloneData(dataProtection.raw):null};
+      localStorage.setItem(RESTORE_SAFETY_KEY,JSON.stringify(prior));
+      // 安全副本写入后再查一次，避免在其间发生的其他窗口更新被覆盖。
+      if(!sameRaw(readWatchedRaw(),observed))throw Error('保存安全副本期间其他窗口更新了账本，请重新导入');
+    }
+    localStorage.setItem(BOOK_KEY,serialized);
+    tripBook=validated;storageBaseline={...observed,[BOOK_KEY]:serialized};
+    lastLocalCommit={revision:validated.revision,commitId:validated.commitId};
+    if(recovery){
+      dataProtection=null;storageSyncPending=false;clearTimeout(storageSyncTimer);
+      document.getElementById('data-protection').hidden=true;
+      document.querySelectorAll('.top-bar,.section,.bottom-bar').forEach(el=>el.inert=false);
+    }
+    return true;
+  }catch(err){toast('保存失败，本次操作未生效。请检查存储空间或先导出备份。\n'+err.message);return false;}
+}
+function persistDataState(previousState,_keys){
+  if(!canWriteData()){restoreDataState(previousState);renderAll();return false;}
+  try{
+    // 必须先校验原始内存，不能先 JSON 克隆（NaN/Infinity 会被克隆成 null）。
+    const state=validateDataState({orders,purchaseLogs,productMeta},{legacy:true}),candidate=cloneData(tripBook);
+    const trip=candidate.trips.find(t=>t.id===activeTripId);
+    Object.assign(trip,state,{updatedAt:new Date().toISOString()});
+    if(commitTripBook(candidate)){restoreDataState(state);return true;}
+  }catch(err){toast('数据约束异常，未保存：'+err.message);}
+  restoreDataState(previousState);renderAll();return false;
+}
+function reloadDataFromStorage(previousState){
+  if(dataProtection)return false;
+  try{
+    const observed=readWatchedRaw();
+    if(storageBaseline&&WATCH_KEYS.filter(k=>k!==BOOK_KEY).some(k=>observed[k]!==storageBaseline[k]))throw Error('旧版窗口修改了历史存储。已暂停记账，请导出恢复资料后核对，不能自动覆盖新账本');
+    const next=validateTripBook(JSON.parse(observed[BOOK_KEY]));
+    tripBook=next;storageBaseline=observed;
+    const id=next.trips.some(t=>t.id===activeTripId)?activeTripId:(next.trips.find(t=>t.status!=='archived')||next.trips[0]).id;
+    loadTrip(id,{remember:false});return true;
+  }catch(err){showDataProtection(err.message,previousState);return false;}
+}
+function queueStorageSync(){
+  if(dataProtection)return;
+  clearTimeout(storageSyncTimer);storageSyncPending=true;
+  invalidateTripDrafts();
+  storageSyncTimer=setTimeout(()=>{
+    if(reloadDataFromStorage(captureDataState()))toast('其他窗口已更新账本；未完成的编辑已取消，请重新确认');
+    storageSyncPending=false;
+  },50);
+}
+window.addEventListener('storage',e=>{
+  if(e.key!==null&&!WATCH_KEYS.includes(e.key))return;
+  if(e.key===BOOK_KEY&&e.newValue&&lastLocalCommit){
+    try{
+      const incoming=JSON.parse(e.newValue);
+      // 同修订或更旧的不同提交，表示其他窗口曾从过期版本同时保存。
+      if(incoming.revision<=lastLocalCommit.revision&&incoming.commitId!==lastLocalCommit.commitId){
+        showDataProtection('检测到多窗口同时保存冲突。已保留本窗口的完整快照及冲突数据，请先导出原始恢复资料和操作前完整备份，核对后再恢复。',captureDataState());
+        dataProtection.raw.conflictingStorageEvent=e.newValue;return;
+      }
+    }catch{}
+  }
+  queueStorageSync();
+});
+function renderTripHeader(){
+  if(!tripBook||!currentTrip())return;
+  const select=document.getElementById('trip-select');
+  const sorted=[...tripBook.trips].sort((a,b)=>(a.status==='archived')-(b.status==='archived'));
+  select.innerHTML=sorted.map(t=>'<option value="'+escAttr(t.id)+'">'+esc(t.name)+' · '+TRIP_STATUSES[t.status]+'</option>').join('');select.value=activeTripId;
+  const gap=orders.reduce((s,o)=>s+o.qty-o.purchased,0),balance=orders.reduce((s,o)=>s+(o.isPaid?0:o.qty*o.sellingPrice),0);
+  document.getElementById('trip-overview').textContent='订单 '+orders.length+' 笔 · 待采购 '+gap+' 件 · 成本 ¥'+getPurchaseCost().toFixed(2)+' · 未收 ¥'+balance.toFixed(2);
+  document.querySelector('.print-title').textContent='📒 双表记账 · '+currentTrip().name;
+}
+function createTrip(name){
+  if(!canManageTrips())return null;
+  if(!validTripName(name)){toast('请输入1至120字的行程名称');return null;}
+  const trip=emptyTrip(name),candidate=cloneData(tripBook);candidate.trips.push(trip);
+  if(!commitTripBook(candidate))return null;
+  loadTrip(trip.id);toast('已新建行程，可直接录入客户预订');return trip.id;
+}
+function createTripFromUI(){
+  if(!canManageTrips())return;
+  const name=prompt('新行程名称（不需要填写出发日期）');
+  if(name!==null)createTrip(name.trim());
+}
+function updateTrip(id,patch){
+  if(!canManageTrips())return false;
+  if(patch.name!==undefined&&!validTripName(patch.name)){toast('行程名称须为1至120字，不能含换行或首尾空格');return false;}
+  const candidate=cloneData(tripBook),trip=candidate.trips.find(t=>t.id===id);
+  if(!trip)return false;
+  // 身份和账本内容不能经由管理操作改变。
+  if(patch.name!==undefined)trip.name=patch.name;
+  if(patch.status!==undefined)trip.status=patch.status;
+  trip.updatedAt=new Date().toISOString();
+  if(!commitTripBook(candidate))return false;
+  invalidateTripDrafts();restoreDataState(currentTrip());renderAll();return true;
+}
+function openTripManager(){if(!canManageTrips())return;renderTripManager();document.getElementById('modal-trips').classList.add('show');}
+function closeTripManager(){document.getElementById('modal-trips').classList.remove('show');}
+function renderTripManager(){
+  const showArchived=document.getElementById('show-archived-trips').checked;
+  const list=document.getElementById('trip-manager-list');list.replaceChildren();
+  for(const trip of tripBook.trips.filter(t=>showArchived||t.status!=='archived')){
+    const card=document.createElement('div');card.className='card';card.style.padding='12px';
+    const title=document.createElement('b');title.textContent=trip.name+' · '+TRIP_STATUSES[trip.status];card.appendChild(title);
+    const count=document.createElement('p');count.className='trip-overview';count.style.padding='6px 0';count.textContent=trip.orders.length+' 笔订单 · '+trip.purchaseLogs.length+' 笔采购 · ID '+trip.id.slice(0,8);card.appendChild(count);
+    const actions=document.createElement('div');actions.className='trip-actions';
+    function button(text,fn,danger=false){const b=document.createElement('button');b.textContent=text;b.onclick=fn;if(danger)b.className='danger';actions.appendChild(b);}
+    button('进入',()=>{if(switchTrip(trip.id))closeTripManager();});
+    button('重命名',()=>{const name=prompt('行程新名称',trip.name);if(name!==null){updateTrip(trip.id,{name:name.trim()});openTripManager();}});
+    if(trip.status==='planned')button('开始行程',()=>{updateTrip(trip.id,{status:'active'});openTripManager();});
+    if(trip.status==='archived')button('重新启用',()=>{updateTrip(trip.id,{status:'active'});openTripManager();});
+    else button('归档',()=>{if(confirm('归档「'+trip.name+'」？数据会保留，可随时查看、导出或重新启用。')){updateTrip(trip.id,{status:'archived'});openTripManager();}});
+    button('删除',()=>{deleteTrip(trip.id);if(!dataProtection)openTripManager();},true);
+    card.appendChild(actions);list.appendChild(card);
+  }
+  if(!list.childElementCount)list.textContent='暂无未归档行程，可勾选上方查看已归档行程。';
+}
+function deleteTrip(id){
+  if(!canManageTrips())return false;
+  const trip=tripBook.trips.find(t=>t.id===id);if(!trip)return false;
+  if(!confirm('删除行程「'+trip.name+'」（ID '+id+'）？\n该行程的全部订单、采购流水及商品资料会被删除。建议先导出备份。'))return false;
+  if(!confirm('再次确认：永久删除「'+trip.name+'」的全部数据？此操作无法撤销。'))return false;
+  const candidate=cloneData(tripBook);candidate.trips=candidate.trips.filter(t=>t.id!==id);
+  if(!candidate.trips.length)candidate.trips.push(emptyTrip('新行程'));
+  if(!commitTripBook(candidate))return false;
+  const next=id===activeTripId?(candidate.trips.find(t=>t.status!=='archived')||candidate.trips[0]).id:activeTripId;
+  loadTrip(next);toast('已删除行程「'+trip.name+'」');return true;
+}
+function makeAllTripsBackup(book=tripBook){return{version:3,type:'all-trips',exportedAt:new Date().toISOString(),activeTripId:book.trips.some(t=>t.id===activeTripId)?activeTripId:book.trips[0].id,trips:cloneData(book.trips)};}
+function makeTripBackup(){return{version:3,type:'trip',exportedAt:new Date().toISOString(),trip:cloneData(currentTrip())};}
+function doExportFile(type='trip'){
+  if(dataProtection){if(dataProtection.snapshot)exportRecoverySnapshot();else exportRecoveryRaw();return;}
+  if(!tripBook)return;
+  const backup=type==='all-trips'?makeAllTripsBackup():makeTripBackup();
+  const name=type==='all-trips'?'全部行程':currentTrip().name.replace(/[<>:"/\\|?*\u0000-\u001f]/g,'_');
+  const d=new Date(),date=[d.getFullYear(),String(d.getMonth()+1).padStart(2,'0'),String(d.getDate()).padStart(2,'0')].join('-');
+  downloadRecoveryFile(backup,'双表记账_'+name+'_'+date+'.json');closeExportModal();toast('备份文件已生成，请保存下载文件');
+}
+function exportRestoreSafety(){
+  closeMenu();
+  try{
+    const raw=localStorage.getItem(RESTORE_SAFETY_KEY);if(!raw){toast('暂无恢复前安全副本');return;}
+    const safety=JSON.parse(raw);
+    downloadRecoveryFile(safety.backup?{...safety.backup,...(safety.recoveryRaw?{recoveryRaw:safety.recoveryRaw}:{})}:{recoveryFormat:1,...safety},'双表记账_恢复前安全副本.json');
+  }catch(err){toast('无法读取安全副本：'+err.message);}
+}
+function parseTripBackup(data){
+  if(!isRecord(data))throw Error('备份必须是对象');
+  if(data.version===1)return{kind:'legacy',state:validateLegacyV1Backup(data),legacyVersion:1,
+    convertedStockRows:data.orders.filter(o=>o.customer===SYS_CUSTOMER).length};
+  if(data.version===2)return{kind:'legacy',state:validateBackup(data)};
+  if(data.version!==3)throw Error('version：未知或缺失的备份版本');
+  if(!validTimestamp(data.exportedAt))throw Error('导出时间不合法');
+  if(data.type==='trip')return{kind:'trip',trip:validateTrip(data.trip)};
+  if(data.type==='all-trips'){
+    const trips=validateTrips(data.trips);
+    if(typeof data.activeTripId!=='string'||!trips.some(t=>t.id===data.activeTripId))throw Error('备份当前行程ID不合法');
+    return{kind:'all-trips',trips,activeTripId:data.activeTripId};
+  }
+  throw Error('未知备份类型');
+}
+function validateLegacyV1Backup(data){
+  // v5 的 version:1 把剩余库存记为虚拟订单。仅转换可由采购流水完整核对的已知格式。
+  if(!Array.isArray(data.orders))throw Error('orders：必须是数组');
+  const stockIds=new Set(),stockByProduct=new Map();
+  for(const o of data.orders){
+    if(!isRecord(o)||o.customer!==SYS_CUSTOMER)continue;
+    if(!Number.isSafeInteger(o.qty)||o.qty<=0||o.purchased!==o.qty||o.sellingPrice!==0||
+      (o.isPaid!==undefined&&o.isPaid!==false)||(o.note!==undefined&&o.note!=='')||
+      Object.keys(o).some(k=>!['id','customer','product','qty','sellingPrice','purchased','isPaid','location','note'].includes(k))){
+      throw Error('v5系统库存行不符合历史格式，不能自动转换');
+    }
+    stockIds.add(o.id);stockByProduct.set(o.product,(stockByProduct.get(o.product)||0)+o.qty);
+  }
+  // 先把库存行作为全额分配的校验行，复用原有字段/ID/金额/总量检查，不能绕过校验。
+  const validated=validateDataState({...data,orders:data.orders.map(o=>
+    isRecord(o)&&o.customer===SYS_CUSTOMER?{...o,customer:'历史库存校验'}:o)},{legacy:true});
+  const realOrders=validated.orders.filter(o=>!stockIds.has(o.id)),totals=new Map();
+  for(const log of validated.purchaseLogs)totals.set(log.product,(totals.get(log.product)||0)+log.qty);
+  for(const o of realOrders)totals.set(o.product,(totals.get(o.product)||0)-o.purchased);
+  for(const product of new Set([...totals.keys(),...stockByProduct.keys()])){
+    if((totals.get(product)||0)!==(stockByProduct.get(product)||0)){
+      throw Error('v5商品「'+product+'」的系统库存与采购流水不一致，不能自动转换');
+    }
+  }
+  // 采购、已分配、剩余库存和历史成本保持一致；若同时有库存和缺口仍会拒绝导入。
+  return validateDataState({...validated,orders:realOrders});
+}
+function closeImportModal(){
+  document.getElementById('modal-import').classList.remove('show');document.getElementById('input-import-file').value='';
+  pendingImport=null;importReadToken++;
+}
+function openImportModal(){
+  closeMenu();closeImportModal();document.getElementById('modal-import').classList.add('show');
+  document.getElementById('legacy-import-target').hidden=true;document.getElementById('btn-confirm-import').hidden=true;document.getElementById('import-summary').textContent='';
+}
+async function legacyBackupId(state){
+  const bytes=new TextEncoder().encode(JSON.stringify(state));
+  // 相同旧备份选择“新建”再次导入，仍对应同一稳定ID，避免重复账本。
+  const hash=await crypto.subtle.digest('SHA-256',bytes);
+  return 'legacy-'+Array.from(new Uint8Array(hash),b=>b.toString(16).padStart(2,'0')).join('');
+}
+function handleImportFile(event){
+  const file=event.target.files?.[0];if(!file)return;
+  const epoch=tripEpoch,token=++importReadToken,reader=new FileReader();pendingImport=null;
+  document.getElementById('btn-confirm-import').hidden=true;document.getElementById('legacy-import-target').hidden=true;
+  let expectedRaw;
+  try{expectedRaw=readWatchedRaw();}catch(err){alert('无法读取本地账本，导入已取消：'+err.message);return;}
+  reader.onload=async e=>{
+    try{
+      const parsed=parseTripBackup(JSON.parse(e.target.result));
+      if(parsed.kind==='legacy')parsed.newId=await legacyBackupId(parsed.state);
+      if(epoch!==tripEpoch||token!==importReadToken){toast('页面或行程已变化，导入已取消，请重新选择文件');return;}
+      if(!sameRaw(readWatchedRaw(),expectedRaw))throw Error('读取文件期间账本已变化，请重新选择文件');
+      pendingImport={...parsed,epoch,expectedRaw};
+      document.getElementById('modal-import').classList.add('show');
+      const legacy=parsed.kind==='legacy';document.getElementById('legacy-import-target').hidden=!legacy;
+      if(legacy){
+        const select=document.getElementById('import-trip-target');
+        select.innerHTML='<option value="">请选择导入位置…</option><option value="__new__">新建一个行程并导入</option>'+(tripBook?.trips||[]).map(t=>'<option value="'+escAttr(t.id)+'">'+esc(t.name)+' · '+TRIP_STATUSES[t.status]+'（'+esc(t.id.slice(0,8))+'）</option>').join('');
+        document.getElementById('import-trip-name').value='';
+      }
+      document.getElementById('btn-confirm-import').hidden=false;updateImportSummary();
+    }catch(err){pendingImport=null;toast('导入已拒绝：'+err.message);alert('导入已拒绝，原账本未改动。\n'+(err instanceof SyntaxError?'JSON语法错误':err.message));}
+    finally{event.target.value='';}
+  };
+  reader.onerror=()=>{toast('文件读取失败，原账本未改动');event.target.value='';};reader.readAsText(file,'utf-8');
+}
+function importDescription(){
+  if(!pendingImport)return '';
+  const p=pendingImport;
+  const line=t=>t.name+'（ID '+t.id+'）：'+t.orders.length+' 笔订单、'+t.purchaseLogs.length+' 笔采购';
+  if(p.kind==='legacy'){
+    const target=document.getElementById('import-trip-target').value;
+    const trip=target==='__new__'?{id:p.newId,name:document.getElementById('import-trip-name').value.trim()}:tripBook?.trips.find(t=>t.id===target);
+    const matched=trip&&tripBook?.trips.find(t=>t.id===trip.id);
+    return '旧版备份：'+p.state.orders.length+' 笔订单、'+p.state.purchaseLogs.length+' 笔采购。\n'+
+      (p.legacyVersion===1?'v5格式：已核对'+p.convertedStockRows+'条系统库存行，将转为独立库存；旧版未记录的收款状态按未收款恢复。\n':'')+
+      (!trip?'请先选择导入位置。':(matched?'将替换行程「'+matched.name+'」的全部数据':'将新建行程「'+trip.name+'」')+'\n目标ID：'+trip.id)+(matched&&target==='__new__'?'\n此旧备份已新建导入过，将恢复该行程，避免重复新建。':'');
+  }
+  if(p.kind==='trip'){
+    const old=tripBook?.trips.find(t=>t.id===p.trip.id);
+    return line(p.trip)+'\n'+(old?'按ID匹配到本地「'+old.name+'」（'+old.orders.length+' 笔订单、'+old.purchaseLogs.length+' 笔采购），将替换其全部数据。':'本地没有此ID，将创建该行程，其他行程不变。');
+  }
+  const local=tripBook?.trips||[],ids=new Set(p.trips.map(t=>t.id));
+  return '完整恢复全部行程（包含已归档）。\n'+p.trips.map(t=>(local.some(x=>x.id===t.id)?'替换：':'新增：')+line(t)).join('\n')+'\n'+local.filter(t=>!ids.has(t.id)).map(t=>'删除：'+line(t)).join('\n')+'\n将先保存恢复前安全副本，确认后才执行。';
+}
+function updateImportSummary(){
+  document.getElementById('import-summary').textContent=importDescription();
+  const p=pendingImport,target=document.getElementById('import-trip-target').value;
+  document.getElementById('btn-confirm-import').disabled=!p||(p.kind==='legacy'&&(!target||(target==='__new__'&&!validTripName(document.getElementById('import-trip-name').value.trim()))));
+}
+function confirmImportBackup(){
+  const p=pendingImport;if(!p||p.epoch!==tripEpoch)return;
+  try{
+    if(!sameRaw(readWatchedRaw(),p.expectedRaw))throw Error('账本已被其他操作更新，请重新选择文件');
+    let trips=tripBook?cloneData(tripBook.trips):[],selected;
+    if(p.kind==='all-trips'){trips=cloneData(p.trips);selected=p.activeTripId;}
+    else{
+      let trip;
+      if(p.kind==='legacy'){
+        const target=document.getElementById('import-trip-target').value;
+        if(!target)throw Error('请先指定旧备份的导入位置');
+        if(target==='__new__'){
+          const name=document.getElementById('import-trip-name').value.trim();if(!validTripName(name))throw Error('请输入合法的新行程名称');
+          trip={...emptyTrip(name,p.newId),...p.state};
+        }else{
+          const old=trips.find(t=>t.id===target);if(!old)throw Error('目标行程不存在');
+          trip={...old,...p.state,updatedAt:new Date().toISOString()};
+        }
+      }else trip=cloneData(p.trip);
+      selected=trip.id;trips=trips.filter(t=>t.id!==trip.id);trips.push(trip);
+    }
+    const candidate=validateTripBook({schemaVersion:1,revision:0,commitId:newTripId(),migration:tripBook?.migration||{status:'complete',recoveredAt:new Date().toISOString()},trips});
+    const description=importDescription();
+    if(!confirm(description+'\n\n确定恢复？涉及的原数据将被替换；不会逐条合并。'+(dataProtection?'\n当前处于恢复保护，请先导出原始恢复资料。':'')))return;
+    if(!commitTripBook(candidate,{recovery:!!dataProtection,safety:true,expectedRaw:p.expectedRaw}))return;
+    loadTrip(selected);toast('备份已恢复，恢复前安全副本可在菜单中导出');
+  }catch(err){alert('导入已拒绝，原账本未改动。\n'+err.message);}
+}
+function clearAllData(){
+  if(!canWriteData())return;closeMenu();const name=currentTrip().name;
+  if(!confirm('清空当前行程「'+name+'」？\n仅删除此行程的全部订单、采购和商品资料，其他行程不受影响。建议先导出备份。'))return;
+  if(!confirm('再次确认：清空「'+name+'」的数据？此操作无法撤销。'))return;
+  const previous=captureDataState();orders=[];purchaseLogs=[];productMeta=Object.create(null);
+  if(!persistDataState(previous,DATA_KEYS))return;
+  invalidateTripDrafts();renderAll();toast('当前行程数据已清空');
+}
+
+
 // ═══════════════════════════════════════════════════════
 // 数据层
 // orders: { id, customer, product, qty, sellingPrice, purchased, isPaid, location }
@@ -894,7 +1350,7 @@ const SYS_CUSTOMER='【系统库存】';
 
 const MIGRATION_KEY='dual_table_migration_v6';
 const V5_KEYS=['dual_table_orders_v5','dual_table_purchase_logs_v5','dual_table_product_meta_v5'];
-const WATCH_KEYS=[...DATA_KEYS,MIGRATION_KEY];
+const WATCH_KEYS=[...DATA_KEYS,MIGRATION_KEY,BOOK_KEY];
 const MAX_MONEY=1e12; // 元；单价、单笔和账本合计均须在可可靠计算的范围内
 let orders=[],purchaseLogs=[],productMeta=Object.create(null);
 let storageBaseline=null;
@@ -1034,7 +1490,7 @@ function syncStorageBaseline(){
 function showDataProtection(message,snapshot=null){
   const reading=readRawData();
   // 首次故障时的原始字符串和完整快照不被后续事件替换。
-  if(!dataProtection)dataProtection={message,raw:reading.raw,readErrors:reading.errors,snapshot:snapshot?cloneData(snapshot):null};
+  if(!dataProtection)dataProtection={message,raw:reading.raw,readErrors:reading.errors,snapshot:snapshot?cloneData(snapshot):null,bookSnapshot:tripBook?cloneData(tripBook):null};
   else if(message!==dataProtection.message)dataProtection.message=message+'\n原始异常：'+dataProtection.message;
   if(dataProtection.snapshot)restoreDataState(dataProtection.snapshot);
   storageBaseline=null;
@@ -1048,6 +1504,7 @@ function showDataProtection(message,snapshot=null){
   window.scrollTo(0,0);
 }
 function canWriteData(){
+  if(currentTrip()?.status==='archived'){toast('此行程已归档，请在行程管理中重新启用后再编辑');return false;}
   if(!dataProtection&&!storageSyncPending)return true;
   if(!dataProtection){toast('正在同步其他窗口的数据，请稍后重试');return false;}
   toast('数据处于恢复保护中，请先导出恢复资料');return false;
@@ -1064,81 +1521,10 @@ function exportRecoveryRaw(){
 }
 function exportRecoverySnapshot(){
   if(!dataProtection||!dataProtection.snapshot)return;
-  downloadRecoveryFile({version:2,exportedAt:new Date().toISOString(),...dataProtection.snapshot},'双表记账_操作前完整备份.json');
+  const backup=dataProtection.bookSnapshot?makeAllTripsBackup(dataProtection.bookSnapshot):{version:2,exportedAt:new Date().toISOString(),...dataProtection.snapshot};
+  downloadRecoveryFile(backup,'双表记账_操作前完整备份.json');
 }
-function reloadDataFromStorage(previousState,{deferProtection=false}={}){
-  if(dataProtection)return false;
-  const reading=readRawData();
-  try{
-    if(reading.errors.length)throw new Error(reading.errors.join('\n'));
-    const marker=reading.raw[MIGRATION_KEY];
-    if(marker!==JSON.stringify({status:'complete'}))throw new Error(MIGRATION_KEY+'：迁移状态已变化，请导出快照后重新打开');
-    const state=decodeStoredState(reading.raw,DATA_KEYS,{legacy:true});
-    if(WATCH_KEYS.some(key=>localStorage.getItem(key)!==reading.raw[key]))throw new Error('其他窗口仍在写入数据');
-    restoreDataState(state);storageBaseline=Object.fromEntries(WATCH_KEYS.map(k=>[k,reading.raw[k]]));return true;
-  }catch(err){if(!deferProtection)showDataProtection(err.message,previousState);return false;}
-}
-function persistDataState(previousState,keys,{recovery=false}={}){
-  if(dataProtection&&!recovery){restoreDataState(dataProtection.snapshot||previousState);return false;}
-  if(storageSyncPending&&!recovery){restoreDataState(previousState);toast('正在同步，请稍后重试');return false;}
-  // 在任何正式写入之前检查完整候选账本；失败只恢复内存，不触碰存储。
-  try{validateDataState({orders,purchaseLogs,productMeta},{legacy:true});}
-  catch(err){restoreDataState(previousState);renderAll();toast('数据约束异常，未保存：'+err.message);return false;}
-  const protectionBefore=dataProtection;
-  const uniqueKeys=Array.from(new Set(recovery?[...keys,MIGRATION_KEY]:keys));
-  const previousRaw={},writtenKeys=[];
-  try{
-    if(recovery){
-      // 恢复是用户显式确认的完整替换；保留本次替换前的原始字符串供回滚。
-      for(const key of WATCH_KEYS)previousRaw[key]=localStorage.getItem(key);
-    }else if(storageBaseline){
-      const changed=WATCH_KEYS.some(key=>localStorage.getItem(key)!==storageBaseline[key]);
-      if(changed){
-        restoreDataState(previousState);
-        queueStorageSync();
-        toast('检测到其他窗口已有新数据，本次操作未保存，请稍后重试');
-        return false;
-      }
-    }else{
-      throw new Error('缺少可靠的存储基线');
-    }
-    for(const key of uniqueKeys)if(!(key in previousRaw))previousRaw[key]=localStorage.getItem(key);
-    for(const key of uniqueKeys){
-      const data=key===ORDERS_KEY?orders:key===LOGS_KEY?purchaseLogs:key===META_KEY?productMeta:{status:'complete'};
-      localStorage.setItem(key,JSON.stringify(data));writtenKeys.push(key);
-    }
-    syncStorageBaseline();
-    if(recovery){
-      dataProtection=null;storageSyncPending=false;clearTimeout(storageSyncTimer);
-      document.getElementById('data-protection').hidden=true;
-      document.querySelectorAll('.top-bar,.section,.bottom-bar').forEach(el=>el.inert=false);
-    }
-    return true;
-  }catch(err){
-    let rollbackOk=true;
-    for(const key of writtenKeys.reverse()){
-      try{
-        if(previousRaw[key]===null)localStorage.removeItem(key);
-        else localStorage.setItem(key,previousRaw[key]);
-      }catch(rollbackErr){rollbackOk=false;}
-    }
-    restoreDataState(previousState);
-    if(!rollbackOk){
-      showDataProtection('严重保存错误：存储可能已部分改变，回滚也失败。'+err.message,
-        protectionBefore?protectionBefore.snapshot:previousState);
-    }else if(protectionBefore){
-      dataProtection=protectionBefore;
-      showDataProtection(protectionBefore.message,protectionBefore.snapshot);
-      toast('恢复未完成，已恢复本次替换前的原始存储；请保留恢复资料');
-    }else{
-      try{syncStorageBaseline();}
-      catch(readErr){showDataProtection('无法确认存储状态：'+readErr.message,previousState);}
-      toast(dataProtection?'存储异常，已进入恢复保护':'保存失败：已回滚，本次操作未生效，请先导出备份并检查存储空间');
-    }
-    renderAll();return false;
-  }
-}
-function initializeData(){
+function initializeLegacyData(){
   const reading=readRawData();let goodState=null;
   try{
     if(reading.errors.length)throw new Error(reading.errors.join('\n'));
@@ -1187,27 +1573,6 @@ let editingOrderId=null;
 let editingField=null;  // { orderId, field:'product'|'qty' }
 let isComposing=false;
 let storageSyncTimer=null;
-function queueStorageSync(){
-  if(dataProtection)return;
-  clearTimeout(storageSyncTimer);storageSyncPending=true;
-  // 一次保存会发出多个storage事件。先暂停本页写入，等完整数据稳定后再校验；
-  // 不能把短暂的跨键中间状态直接当成永久损坏，也不能在等待期间接受普通写入。
-  let attempts=0;
-  const retry=()=>{
-    if(dataProtection){storageSyncPending=false;return;}
-    const previousState=captureDataState();
-    if(reloadDataFromStorage(previousState,{deferProtection:attempts<2})){
-      storageSyncPending=false;renderAll();toast('已同步其他窗口的最新数据');
-    }else if(++attempts<3){storageSyncTimer=setTimeout(retry,100);}
-    else storageSyncPending=false;
-  };
-  storageSyncTimer=setTimeout(retry,50);
-}
-window.addEventListener('storage',function(e){
-  if(e.key!==null&&!WATCH_KEYS.includes(e.key))return;
-  queueStorageSync();
-});
-
 function getProductMeta(p){return productMeta[p]||{lastLocation:'',lastPrice:0,note:''};}
 function updateProductMeta(product,location,price){
   if(!productMeta[product])productMeta[product]={lastLocation:'',lastPrice:0,note:''};
@@ -1336,67 +1701,6 @@ function filterProducts(query,quiet=false){
 // ═══════════════════════════════════════════════════════
 function openExportModal(){closeMenu();document.getElementById('modal-export').classList.add('show');}
 function closeExportModal(){document.getElementById('modal-export').classList.remove('show');}
-function doExportFile(){
-  if(dataProtection){if(dataProtection.snapshot)exportRecoverySnapshot();else exportRecoveryRaw();return;}
-  const backup={version:2,exportedAt:new Date().toISOString(),orders,purchaseLogs,productMeta};
-  const text=JSON.stringify(backup,null,2);
-  const blob=new Blob([text],{type:'application/json'});
-  const url=URL.createObjectURL(blob);
-  const a=document.createElement('a');
-  const ts=new Date();
-  const pad=n=>String(n).padStart(2,'0');
-  const fname='双表记账备份_'+ts.getFullYear()+pad(ts.getMonth()+1)+pad(ts.getDate())+'_'+pad(ts.getHours())+pad(ts.getMinutes())+'.json';
-  a.href=url;a.download=fname;
-  document.body.appendChild(a);a.click();document.body.removeChild(a);
-  setTimeout(()=>URL.revokeObjectURL(url),1000);
-  closeExportModal();toast('✅ 备份文件已生成，请在分享菜单中保存');
-}
-function openImportModal(){
-  closeMenu();
-  document.getElementById('input-import-file').value='';
-  document.getElementById('modal-import').classList.add('show');
-}
-function closeImportModal(){
-  document.getElementById('modal-import').classList.remove('show');
-  document.getElementById('input-import-file').value='';
-}
-function handleImportFile(event){
-  const file=event.target.files&&event.target.files[0];
-  if(!file)return;
-  const reader=new FileReader();
-  reader.onload=function(e){
-    let candidate;
-    try{candidate=validateBackup(JSON.parse(e.target.result));}
-    catch(err){
-      const message=err instanceof SyntaxError?'JSON语法错误':err.message;
-      toast('导入已拒绝：'+message);
-      alert('导入已拒绝，原账本未改动。\n'+message);
-      event.target.value='';return;
-    }
-    const recovering=!!dataProtection;
-    const warning=recovering?'当前处于恢复保护。请先导出原始恢复资料及可用的操作前备份。\n确定用此正常备份替换当前存储并恢复记账吗？':'确定要导入「'+file.name+'」吗？\n当前数据将被覆盖。';
-    if(!confirm(warning)){event.target.value='';return;}
-    const previousState=captureDataState();
-    restoreDataState(candidate);
-    if(!persistDataState(previousState,DATA_KEYS,{recovery:recovering})){event.target.value='';return;}
-    renderAll();closeImportModal();toast('✅ 备份文件已验证并成功导入');
-    event.target.value='';
-  };
-  reader.onerror=function(){toast('❌ 文件读取失败，原账本未改动');event.target.value='';};
-  reader.readAsText(file,'utf-8');
-}
-
-function clearAllData(){
-  if(!canWriteData())return;
-  closeMenu();
-  if(!confirm('⚠️ 确定要清空所有数据吗？\n\n此操作将删除全部订单、采购记录和商品信息，且无法撤销。\n\n建议先导出备份数据。'))return;
-  if(!confirm('再次确认：确实要清空所有数据？'))return;
-  const previousState=captureDataState();
-  orders=[];purchaseLogs=[];productMeta=Object.create(null);
-  if(!persistDataState(previousState,DATA_KEYS))return;
-  renderAll();toast('✅ 数据已清空，可开始新行程记账');
-}
-
 // ═══════════════════════════════════════════════════════
 // NLP 解析
 // ═══════════════════════════════════════════════════════
@@ -1762,7 +2066,7 @@ function renderFinance(){
 }
 function renderAll(){
   const expanded=captureExpandedLocations();
-  renderCustomers();renderProducts();renderFinance();
+  renderCustomers();renderProducts();renderFinance();renderTripHeader();
   restoreExpandedLocations(expanded);
 }
 function toggleLocation(toggleEl){const body=toggleEl.nextElementSibling,arrow=toggleEl.querySelector('.arrow');body.classList.toggle('open');arrow.classList.toggle('open');}
@@ -1874,6 +2178,7 @@ function togglePaid(id){
       }
     }
   }
+  renderTripHeader();
   toast(order.isPaid?'✅ 已标记收款':'↩️ 已取消收款');
 }
 
@@ -2482,7 +2787,7 @@ function updateStockHint(val){
 // 全局事件
 // ═══════════════════════════════════════════════════════
 document.querySelectorAll('.modal-overlay').forEach(ov=>{
-  ov.addEventListener('click',function(e){if(e.target===this){if(this.id==='modal-add')addDraftActive=false;this.classList.remove('show');pendingAlloc=null;editingOrderId=null;editingField=null;editingNoteId=null;editingPurchasedCtx=null;editingProductPriceCtx=null;editingProductNote=null;}});
+  ov.addEventListener('click',function(e){if(e.target===this){if(this.id==='modal-add')addDraftActive=false;if(this.id==='modal-import')closeImportModal();this.classList.remove('show');pendingAlloc=null;editingOrderId=null;editingField=null;editingNoteId=null;editingPurchasedCtx=null;editingProductPriceCtx=null;editingProductNote=null;}});
 });
 document.getElementById('input-raw-order').addEventListener('keydown',function(e){if(e.key==='Enter')parseAndReview();});
 document.getElementById('input-raw-stock').addEventListener('keydown',function(e){if(e.key==='Enter')previewAllocation();});

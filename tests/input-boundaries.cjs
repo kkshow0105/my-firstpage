@@ -36,7 +36,8 @@ async function main(){
  }
  async function imp(value,raw=false){
    await a.eval('handleImportFile({target:{files:[new File(['+JSON.stringify(raw?value:JSON.stringify(value))+"],'test.json')],value:''}})");
-   await sleep(80);
+   await sleep(100);
+   await a.eval("if(pendingImport){if(pendingImport.kind==='legacy'){document.getElementById('import-trip-target').value=activeTripId||'__new__';document.getElementById('import-trip-name').value='恢复账本';updateImportSummary();}confirmImportBackup();}");
  }
  async function inject(source){return(await a.send('Page.addScriptToEvaluateOnNewDocument',{source})).identifier;}
  async function reload(){await a.send('Page.reload');await sleep(140);}
