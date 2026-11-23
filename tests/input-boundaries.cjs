@@ -52,6 +52,17 @@ async function main(){
    await a.eval(commands);await sleep(250);
    return fs.readdirSync(dir).filter(x=>x.endsWith('.json')).map(x=>JSON.parse(fs.readFileSync(path.join(dir,x),'utf8')));
  }
+ async function click(selector,touch=false){
+   await sleep(300);
+   const pos=await a.eval('(()=>{const e=document.querySelector('+JSON.stringify(selector)+');e.scrollIntoView({block:"center"});const r=e.getBoundingClientRect();return{x:r.x+r.width/2,y:r.y+r.height/2}})()');
+   if(touch){
+     await a.send('Input.dispatchTouchEvent',{type:'touchStart',touchPoints:[pos]});
+     await a.send('Input.dispatchTouchEvent',{type:'touchEnd',touchPoints:[]});
+   }else{
+     await a.send('Input.dispatchMouseEvent',{type:'mousePressed',...pos,button:'left',clickCount:1});
+     await a.send('Input.dispatchMouseEvent',{type:'mouseReleased',...pos,button:'left',clickCount:1});
+   }
+ }
 
  const idPayloads=['x" onpointerover="window.injected=1',"x');window.injected=1;//",'<script>window.injected=1</script>','x&y','<','>','javascript:window.injected=1'];
  for(const id of idPayloads)await record('09-reject-id-'+id,async()=>{await fresh(seedOf(sample));const raw=await a.eval(rawExpr);const x=clone(sample);x.orders[0].id=id;await imp(x);assert.equal(await a.eval(rawExpr),raw);assert.equal(await a.eval('window.injected||0'),0);return{rejected:true};});
@@ -108,9 +119,159 @@ async function main(){
  });
  for(const mobile of [false,true])await record('normal-ui-quick-entry-'+(mobile?'mobile':'desktop'),async()=>{
  await fresh();await a.send('Emulation.setDeviceMetricsOverride',{width:mobile?390:1100,height:844,deviceScaleFactor:1,mobile});
- async function click(selector){await sleep(300);const pos=await a.eval('(()=>{const e=document.querySelector('+JSON.stringify(selector)+');e.scrollIntoView({block:"center"});const r=e.getBoundingClientRect();return{x:r.x+r.width/2,y:r.y+r.height/2}})()');await a.send('Input.dispatchMouseEvent',{type:'mousePressed',...pos,button:'left',clickCount:1});await a.send('Input.dispatchMouseEvent',{type:'mouseReleased',...pos,button:'left',clickCount:1});}
  await click('.btn-add');await sleep(350);await a.send('Input.insertText',{text:'A "iPhone 18" 2 10 店 2 楼'});await click('#add-step1 .btn-primary');await click('#add-step2 .btn-primary');assert.equal(await a.eval('orders[0].product'),'iPhone 18');
+ assert.equal(await a.eval('orders[0].isPaid'),false);
  await click('.btn-stock');await sleep(350);await a.send('Input.insertText',{text:'"iPhone 18" 2 5 店 2 楼'});await click('#stock-step1 [onclick="previewAllocation()"]');await click('#btn-confirm-alloc');assert.equal(await a.eval('orders[0].purchased'),2);assert.equal(await a.eval('purchaseLogs[0].location'),'店 2 楼');await a.send('Emulation.clearDeviceMetricsOverride');return{nativeClicksAndInput:true};
+ });
+ await record('new-order-payment-flow',async()=>{
+   await fresh();
+   const checked="document.getElementById('input-order-paid').checked";
+   const balance="document.querySelector('.customer-balance-row td:last-child').textContent";
+   const paid='orders.map(o=>o.isPaid)';
+   await a.send('Emulation.setDeviceMetricsOverride',{width:320,height:568,deviceScaleFactor:1,mobile:true});
+   try{
+     await click('.btn-add',true);
+     assert.equal(await a.eval(checked),false);
+     await click('.add-order-paid span',true);
+     assert.equal(await a.eval(checked),true);
+     await click('#input-order-paid',true);
+     assert.equal(await a.eval(checked),false);
+     await click('.add-order-paid span',true);
+     await click('#input-raw-order',true);
+     await a.send('Input.insertText',{text:'张三 苹果 3 10'});
+     await click('#add-step1 .btn-primary',true);
+     assert.equal(await a.eval("document.getElementById('add-step2').classList.contains('active')"),true);
+     assert.equal(await a.eval(checked),true);
+     await click('#add-step2 .btn-ghost',true);
+     assert.equal(await a.eval(checked),true);
+     await click('#add-step1 .btn-primary',true);
+     await click('#add-step2 .btn-primary',true);
+     assert.deepEqual(await a.eval(paid),[true]);
+     assert.equal(await a.eval(balance),'-');
+     await click('.btn-add',true);
+     assert.equal(await a.eval(checked),false);
+     await click('.add-order-paid span',true);
+     await click('#add-step1 .btn-ghost',true);
+     assert.equal(await a.eval("document.getElementById('modal-add').classList.contains('show')"),false);
+     assert.deepEqual(await a.eval(paid),[true]);
+     await click('.btn-add-for-customer',true);
+     assert.equal(await a.eval(checked),false);
+     await click('.add-order-paid span',true);
+     await a.eval("document.getElementById('modal-add').click()");
+     await click('.btn-add-for-customer',true);
+     assert.equal(await a.eval(checked),false);
+     await sleep(350);await a.send('Input.insertText',{text:'梨 2 7'});
+     await click('#add-step1 .btn-primary',true);
+     await click('#add-step2 .btn-primary',true);
+     assert.deepEqual(await a.eval(paid),[true,false]);
+     assert.equal(await a.eval(balance),'¥14.00');
+     await reload();
+     assert.deepEqual(await a.eval(paid),[true,false]);
+     assert.equal(await a.eval(balance),'¥14.00');
+     const [backup]=await downloadRecovery('new-order-payment','doExportFile()');
+     await fresh();await imp(backup);
+     assert.deepEqual(await a.eval(paid),[true,false]);
+     assert.equal(await a.eval(balance),'¥14.00');
+     const unpaidCheckbox='.tap-row[data-id="'+await a.eval('orders[1].id')+'"] .paid-check';
+     await click(unpaidCheckbox,true);
+     assert.deepEqual(await a.eval(paid),[true,true]);
+     assert.equal(await a.eval(balance),'-');
+     await click(unpaidCheckbox,true);
+     assert.deepEqual(await a.eval(paid),[true,false]);
+     assert.equal(await a.eval(balance),'¥14.00');
+     return{paidAndUnpaidPersisted:true,balanceAndManualToggle:true};
+   }finally{await a.send('Emulation.clearDeviceMetricsOverride');}
+ });
+ await record('confirm-order-payment-badge',async()=>{
+   await fresh();
+   await a.send('Emulation.setDeviceMetricsOverride',{width:320,height:568,deviceScaleFactor:1,mobile:true});
+   const checked="document.getElementById('input-order-paid').checked";
+   async function assertBadge(isPaid){
+     const badge=await a.eval(`(()=>{
+       const el=document.getElementById('order-payment-badge'),r=el.getBoundingClientRect(),style=getComputedStyle(el);
+       const title=el.previousElementSibling.getBoundingClientRect(),header=el.parentElement.getBoundingClientRect();
+       const hint=el.parentElement.nextElementSibling.getBoundingClientRect();
+       return {text:el.textContent,color:style.color,background:style.backgroundColor,
+         fits:title.right<r.left&&r.right<=header.right&&r.bottom<=hint.top&&
+           Math.abs(title.left+title.right-header.left-header.right)<=1&&header.height===title.height,
+         position:[r.left-header.left,r.top-header.top,r.width,r.height]};
+     })()`);
+     assert.equal(badge.text,isPaid?'✓ 已付款':'! 未付款');
+     assert.equal(badge.color,isPaid?'rgb(20, 101, 44)':'rgb(156, 32, 27)');
+     assert.equal(badge.background,isPaid?'rgb(232, 248, 237)':'rgb(255, 237, 237)');
+     assert.equal(badge.fits,true);
+     return badge.position;
+   }
+   try{
+     await click('.btn-add',true);
+     await click('#input-order-paid',true);
+     await click('#input-raw-order',true);
+     await a.send('Input.insertText',{text:'张三 苹果 3 10'});
+     await click('#add-step1 .btn-primary',true);
+     const position=await assertBadge(true);
+     await click('#order-payment-badge',true);
+     await assertBadge(true);
+     for(const isPaid of [false,true]){
+       await click('#add-step2 .btn-ghost',true);
+       assert.equal(await a.eval(checked),!isPaid);
+       await click('#input-order-paid',true);
+       await click('#add-step1 .btn-primary',true);
+       assert.deepEqual(await assertBadge(isPaid),position);
+     }
+     await click('#input-confirm-price',true);
+     await a.eval("document.getElementById('input-confirm-price').select()");
+     await a.send('Input.insertText',{text:'12.5'});
+     await click('#add-step2 .btn-primary',true);
+     assert.deepEqual(await a.eval('({price:orders[0].sellingPrice,paid:orders[0].isPaid})'),{price:12.5,paid:true});
+     await click('.btn-add',true);
+     await sleep(350);await a.send('Input.insertText',{text:'李四 梨 2 7'});
+     await click('#add-step1 .btn-primary',true);
+     assert.deepEqual(await assertBadge(false),position);
+     await click('#add-step2 .btn-primary',true);
+     assert.equal(await a.eval('orders[1].isPaid'),false);
+     return{bothStatesSaved:true,refreshOnBack:true,priceEditable:true,width:320};
+   }finally{await a.send('Emulation.clearDeviceMetricsOverride');}
+ });
+ await record('new-order-hint-stages-and-layout',async()=>{
+   await fresh();
+   const sizes=[[1440,900],[768,844],[390,844],[375,667],[360,640],[320,568],[320,330]];
+   const inputs=['张三','张三 ','张三 苹果 ','张三 苹果 3 10','张三 苹果 3 10 '];
+   try{
+     for(const [width,height] of sizes){
+       await a.send('Emulation.setDeviceMetricsOverride',{width,height,deviceScaleFactor:1,mobile:width<=390});
+       await a.eval('openAddModal()');await sleep(300);
+       assert.equal(await a.eval(`(()=>{
+         const rect=s=>document.querySelector(s).getBoundingClientRect();
+         const title=rect('.add-order-header h2'),label=rect('.add-order-paid'),sheet=rect('#modal-add .modal-sheet');
+         return Math.abs(title.left+title.right-sheet.left-sheet.right)<=1&&title.right<label.left&&
+           label.height>=44&&label.bottom<=rect('#input-raw-order').top&&!document.querySelector('#add-step1 .modal-hint');
+       })()`),true,`${width}×${height} 标题栏`);
+       for(const [active,input] of inputs.entries()){
+         const result=await a.eval(`(()=>{
+           updateOrderHint(${JSON.stringify(input)});
+           const hint=document.getElementById('order-input-hint'),bounds=hint.getBoundingClientRect();
+           const parts=[...hint.children].map(e=>e.getBoundingClientRect());
+           const steps=[...hint.querySelectorAll('.hint-step')];
+           return {withinRow:parts.length===9&&hint.scrollWidth===hint.clientWidth&&parts.every(r=>
+             r.left>=bounds.left&&r.right<=bounds.right&&Math.abs(r.top+r.bottom-bounds.top-bounds.bottom)<=2),
+             readable:steps.every(e=>parseFloat(getComputedStyle(e).fontSize)>=12),
+             text:steps.map(e=>e.textContent),states:steps.map(e=>e.classList[1])};
+         })()`);
+         assert(result.withinRow&&result.readable,`${width}×${height} 第${active+1}阶段`);
+         assert.deepEqual(result.text.map(t=>t.slice(-2)),['客户','商品','数量','售价','地点']);
+         assert.deepEqual(result.states,inputs.map((_,i)=>i<active?'done':i===active?'active':'pending'));
+         assert.equal(result.text.filter(t=>t.startsWith('✓')).length,active);
+         assert.equal(result.text[3],active===4?'✓ 售价':'售价');
+         assert.equal(result.text[4],'地点');
+       }
+       assert.equal(await a.eval(`['#input-raw-order','#add-step1 .btn-ghost','#add-step1 .btn-primary'].every(s=>{
+         const el=document.querySelector(s),r=el.getBoundingClientRect();
+         return r.top>=0&&r.bottom<=window.innerHeight&&document.elementFromPoint(r.x+r.width/2,r.y+r.height/2)===el;
+       })`),true,`${width}×${height} 输入框及按钮可点`);
+       await a.eval('closeAddModal()');
+     }
+     return{stages:inputs.length,sizes};
+   }finally{await a.send('Emulation.clearDeviceMetricsOverride');}
  });
  await record('no-page-exceptions',async()=>{assert.equal(pageErrors.length,0,JSON.stringify(pageErrors));return{count:0};});
  if(out.some(x=>x.error))process.exitCode=1;

@@ -7,7 +7,7 @@
 // ═══════════════════════════════════════════════════════
 
 const CACHE_PREFIX = 'shuangbiao-';
-const CACHE_NAME = CACHE_PREFIX + 'v7';
+const CACHE_NAME = CACHE_PREFIX + 'v8';
 
 // 需要预缓存的资源（相对于 sw.js 所在目录）
 const PRECACHE_URLS = [

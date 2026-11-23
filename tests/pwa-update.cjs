@@ -15,7 +15,7 @@ async function main(){
  server=http.createServer((req,res)=>{const name=new URL(req.url,'http://localhost').pathname,file=path.join(root,name==='/'?'index.html':name);if(!file.startsWith(root)||!fs.existsSync(file)||fs.statSync(file).isDirectory()){res.writeHead(404);return res.end()}
  if(network.fail==='offline'){req.socket.destroy();return}if(network.fail&&name!=='/sw.js'){res.writeHead(503);return res.end('core unavailable')}
  let content=fs.readFileSync(file);if(file.endsWith('sw.js'))content=Buffer.from(content.toString().replace(/CACHE_PREFIX \+ 'v\d+'/,"CACHE_PREFIX + 'v"+network.version+"'"));
- if(file.endsWith('index.html'))content=Buffer.from(content.toString().replace('>v2.0.1<','>v1.1.'+(network.version-5)+'<'));
+ if(file.endsWith('index.html'))content=Buffer.from(content.toString().replace(/(class="dropdown-version">)v\d+\.\d+\.\d+(?=<)/,'$1v1.1.'+(network.version-5)));
  res.setHeader('Content-Type',file.endsWith('.html')?'text/html;charset=utf-8':file.endsWith('.js')?'application/javascript':file.endsWith('.json')?'application/json':'image/png');res.setHeader('Cache-Control','no-store');res.end(content);});
  await new Promise(r=>server.listen(0,'127.0.0.1',r));const origin='http://127.0.0.1:'+server.address().port;
  browser=cp.spawn(process.env.EDGE_PATH||'C:/Program Files (x86)/Microsoft/Edge/Application/msedge.exe',['--headless=new','--disable-gpu','--disable-extensions','--disable-sync','--no-first-run','--no-default-browser-check','--remote-debugging-port=0','--user-data-dir='+path.join(scratch,'profile'),'about:blank'],{windowsHide:true,stdio:'ignore'});

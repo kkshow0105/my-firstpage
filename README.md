@@ -1,6 +1,6 @@
 # 双表记账
 
-当前应用版本：v2.0.1。原生 HTML / CSS / JavaScript + LocalStorage + Service Worker，无后端、无新增依赖。
+当前应用版本：v2.0.2。原生 HTML / CSS / JavaScript + LocalStorage + Service Worker，无后端、无新增依赖。
 
 ## 行程与备份
 
@@ -32,7 +32,7 @@
 
 新版本安装完成后显示“发现新版本”，点击“立即更新”后切换并刷新一次；“稍后”可关闭本次提示。首次安装及核心缓存失败时不会提示更新。
 
-Service Worker 缓存版本升级为 `shuangbiao-v7`。记账脚本继续内嵌在 HTML 中，避免旧缓存切换期间 HTML 与外部脚本不配套。离线时可切换、录入、保存和刷新。
+Service Worker 缓存版本升级为 `shuangbiao-v8`。记账脚本继续内嵌在 HTML 中，避免旧缓存切换期间 HTML 与外部脚本不配套。离线时可切换、录入、保存和刷新。
 
 ## 自动化测试
 
