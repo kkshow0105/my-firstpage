@@ -676,7 +676,7 @@ tr.sys-stock td{color:#856404}
         <div class="dropdown-item" onclick="openImportModal()"><span class="d-icon">📤</span> 导入备份数据</div>
         <div class="dropdown-item" onclick="exportRestoreSafety()"><span class="d-icon">🛟</span> 导出恢复前安全副本</div>
         <div class="dropdown-item" onclick="clearAllData()" style="color:var(--red)"><span class="d-icon">🗑️</span> 清空当前行程数据</div>
-        <div class="dropdown-version">v3.0.1</div>
+        <div class="dropdown-version">v3.0.2</div>
       </div>
     </div>
   </div>
@@ -1038,9 +1038,13 @@ function stateSummary(state){
     receivable:state.orders.reduce((s,o)=>s+o.qty*o.sellingPrice,0),
     unpaid:state.orders.reduce((s,o)=>s+(o.isPaid?0:o.qty*o.sellingPrice),0),
     cost:state.purchaseLogs.reduce((s,l)=>s+l.totalCost,0),
-    inventory:products.map(p=>({product:p,
-      bought:state.purchaseLogs.filter(l=>l.product===p).reduce((s,l)=>s+l.qty,0),
-      allocated:state.orders.filter(o=>o.product===p).reduce((s,o)=>s+o.purchased,0)}))};
+    inventory:products.map(product=>{
+      const productOrders=state.orders.filter(order=>order.product===product);
+      return{product,
+        demand:productOrders.reduce((sum,order)=>sum+order.qty,0),
+        bought:state.purchaseLogs.filter(log=>log.product===product).reduce((sum,log)=>sum+log.qty,0),
+        allocated:productOrders.reduce((sum,order)=>sum+order.purchased,0)};
+    })};
 }
 function initializeData(){
   try{

@@ -182,6 +182,8 @@ async function workerTests() {
   let html = previous ? priorFile('index.html') : undefined;
   const oldCache = previous ? 'shuangbiao-' + source.match(/CACHE_PREFIX \+ '(v\d+)'/)?.[1] : 'shuangbiao-v8';
   const previousVersion = html?.match(/class="dropdown-version">([^<]+)/)?.[1];
+  const releaseVersion = fs.readFileSync(path.join(root,'index.html'),'utf8').match(/class="dropdown-version">([^<]+)/)?.[1];
+  const policyAlreadySupported = source.includes("NETWORK_POLICY = 'ledger-static-only-v2'");
   let offline = false;
   const api = await serve((_req, res) => {
     res.writeHead(200, { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' });
@@ -193,7 +195,7 @@ async function workerTests() {
 
   await check('old worker is distinguishable and the old cache policy is detected', async () => {
     await tab.wait('!!navigator.serviceWorker.controller');
-    assert.equal(await tab.eval(verifyWorker), false);
+    assert.equal(await tab.eval(verifyWorker), policyAlreadySupported);
     if (previous) {
       assert.equal(await tab.eval("document.querySelector('.dropdown-version').textContent"), previousVersion);
       assert.ok(await addOrder(tab, 'SyntheticBeforeUpdate'));
@@ -211,22 +213,26 @@ async function workerTests() {
     html = undefined;
     await tab.eval('pwaRegistration.update()');
     await tab.wait('!!pwaRegistration.waiting && !document.getElementById("update-banner").hidden');
-    assert.equal(await tab.eval(verifyWorker), false);
+    assert.equal(await tab.eval(verifyWorker), policyAlreadySupported);
     await tab.eval("sessionStorage.setItem('sw-test-original',oldLedger)");
     await tab.reload();
     await tab.wait('!!pwaRegistration.waiting && !document.getElementById("update-banner").hidden');
     await tab.click('#btn-update-now');
     await delay(500);
-    try { await tab.wait(verifyWorker); }
+    // A patch may keep the same network policy. Wait for the old cache to retire and the new page to load.
+    try {
+      await tab.wait(`(async()=>document.readyState==='complete' && !!pwaRegistration && !pwaRegistration.waiting &&
+        document.querySelector('.dropdown-version')?.textContent===${JSON.stringify(releaseVersion)} &&
+        !(await caches.keys()).includes(${JSON.stringify(oldCache)}))()`);
+      await tab.wait(verifyWorker);
+    }
     catch (error) {
       console.error(await tab.eval("(async()=>({controller:navigator.serviceWorker.controller?.state,version:await caches.keys(),waiting:pwaRegistration?.waiting?.state,updateRequested,updateReloaded,banner:document.getElementById('update-banner').hidden}))()"));
       throw error;
     }
-    await tab.wait("document.readyState==='complete'&&!pwaRegistration?.waiting");
     await tab.wait('cloudSync.workerReady');
     assert.equal(await tab.eval(localSnapshot+"===sessionStorage.getItem('sw-test-original')"), true);
     if (previous) {
-      assert.equal(await tab.eval("document.querySelector('.dropdown-version').textContent"), 'v3.0.1');
       assert.equal(await tab.eval("orders.length===1&&orders[0].customer==='SyntheticBeforeUpdate'"), true);
       assert.equal(await tab.eval('cloudSync.context===null'), true);
     }
@@ -678,6 +684,32 @@ async function migrationTests() {
     assert.equal(await tab.eval("document.getElementById('cloud-migration-submit').disabled"),true);
     assert.equal(requests.length,0);
     assert.equal(await tab.eval(localSnapshot),original);
+  });
+  await check('migration preview reports per-product demand, allocated purchases and remaining stock', async () => {
+    const summary=await tab.eval("document.getElementById('cloud-preview').textContent");
+    const rows=summary.split('\n').filter(line=>line.includes(' · 需求 '));
+    assert.deepEqual(rows.sort(),[
+      '模拟面膜 · 需求 5 · 已采购 5 · 剩余库存 2',
+      '模拟饼干 · 需求 2 · 已采购 1 · 剩余库存 0',
+      '模拟维生素 · 需求 4 · 已采购 2 · 剩余库存 0',
+      '模拟茶包 · 需求 3 · 已采购 0 · 剩余库存 0'
+    ].sort());
+    assert.doesNotMatch(summary,/\b(?:undefined|NaN|Infinity)\b/);
+    for(const expected of ['2 个行程','ID migration-first','ID migration-second','5 笔订单（已收 2，未收 3） · 3 笔采购',
+      '应收 ¥550.00 · 未收 ¥190.00 · 采购成本 ¥210.00','6 条商品资料','0 笔订单（已收 0，未收 0） · 0 笔采购']){
+      assert.ok(summary.includes(expected),expected);
+    }
+    assert.equal(requests.length,0);
+    assert.equal(await tab.eval(localSnapshot),original);
+  });
+  await check('purchase-only products have zero demand and all units remain in stock', async () => {
+    const summary=await tab.eval(`(()=>{
+      const trip=cloneData(migrationReview.book.trips[1]);
+      trip.purchaseLogs.push({id:'stock_only',product:'模拟仅采购',qty:4,unitPrice:5,totalCost:20,location:'',timestamp:1793325600000});
+      return ledgerAuditText([trip]);
+    })()`);
+    assert.match(summary,/模拟仅采购 · 需求 0 · 已采购 0 · 剩余库存 4/);
+    assert.match(summary,/应收 ¥0\.00 · 未收 ¥0\.00 · 采购成本 ¥20\.00/);
   });
   await check('first import retries byte-identically after a lost acknowledgment and verifies readback', async () => {
     controls.loseNext=true;

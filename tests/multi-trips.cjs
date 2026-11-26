@@ -57,7 +57,7 @@ async function main(){
  }
  await record('migration-v6-summary-raw-preserved-id-stable',async()=>{
    await fresh(seed);const r=await a.eval("({trip:currentTrip(),summary:stateSummary(captureDataState()),marker:tripBook.migration})");
-   assert.equal(r.trip.name,'历史账本');assert.equal(r.trip.status,'planned');assert.equal(r.summary.orders,1);assert.equal(r.summary.purchaseLogs,1);assert.equal(r.summary.cost,50);assert.equal(r.summary.receivable,80);assert.equal(r.summary.unpaid,80);assert.deepEqual(r.summary.inventory,[{product:'苹果',bought:5,allocated:4}]);assert.deepEqual(r.marker.summary,r.summary);
+   assert.equal(r.trip.name,'历史账本');assert.equal(r.trip.status,'planned');assert.equal(r.summary.orders,1);assert.equal(r.summary.purchaseLogs,1);assert.equal(r.summary.cost,50);assert.equal(r.summary.receivable,80);assert.equal(r.summary.unpaid,80);assert.deepEqual(r.summary.inventory,[{product:'苹果',demand:4,bought:5,allocated:4}]);assert.deepEqual(r.marker.summary,r.summary);
    const before=await bookRaw();for(let i=0;i<3;i++){await reload();assert.equal(await bookRaw(),before);}
    for(const [k,v]of Object.entries(seed))assert.equal(await a.eval('localStorage.getItem('+JSON.stringify(k)+')'),JSON.stringify(v));
    return{orderCount:1,purchases:1,stock:1,originalKeysUnchanged:true};
