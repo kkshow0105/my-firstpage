@@ -172,7 +172,8 @@ const oldWorker = [
   "self.addEventListener('message',e=>{if(e.data?.type==='SKIP_WAITING')e.waitUntil(self.skipWaiting());});",
   "self.addEventListener('fetch',e=>{if(e.request.method==='GET')e.respondWith(caches.open(name).then(async c=>{const old=await c.match(e.request);if(old)return old;const newValue=await fetch(e.request);if(newValue.ok)await c.put(e.request,newValue.clone());return newValue;}));});"
 ].join('\n');
-const verifyWorker = '(async()=>{const c=navigator.serviceWorker.controller;if(!c)return false;return new Promise(resolve=>{const m=new MessageChannel();const t=setTimeout(()=>{m.port1.close();resolve(false)},350);m.port1.onmessage=e=>{clearTimeout(t);m.port1.close();resolve(e.data==="ledger-static-only-v2")};c.postMessage({type:"LEDGER_CHECK_NETWORK_POLICY"},[m.port2])})})()';
+const workerPolicy = workerSource.match(/const NETWORK_POLICY = '([^']+)'/)?.[1];
+const verifyWorker = '(async()=>{const c=navigator.serviceWorker.controller;if(!c)return false;return new Promise(resolve=>{const m=new MessageChannel();const t=setTimeout(()=>{m.port1.close();resolve(false)},350);m.port1.onmessage=e=>{clearTimeout(t);m.port1.close();resolve(e.data==='+JSON.stringify(workerPolicy)+')};c.postMessage({type:"LEDGER_CHECK_NETWORK_POLICY"},[m.port2])})})()';
 const marker = 'dual_table_m5_worker_test_pending';
 
 async function workerTests() {
@@ -183,7 +184,7 @@ async function workerTests() {
   const oldCache = previous ? 'shuangbiao-' + source.match(/CACHE_PREFIX \+ '(v\d+)'/)?.[1] : 'shuangbiao-v8';
   const previousVersion = html?.match(/class="dropdown-version">([^<]+)/)?.[1];
   const releaseVersion = fs.readFileSync(path.join(root,'index.html'),'utf8').match(/class="dropdown-version">([^<]+)/)?.[1];
-  const policyAlreadySupported = source.includes("NETWORK_POLICY = 'ledger-static-only-v2'");
+  const policyAlreadySupported = source.includes("NETWORK_POLICY = '" + workerPolicy + "'");
   let offline = false;
   const api = await serve((_req, res) => {
     res.writeHead(200, { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' });
@@ -339,7 +340,7 @@ async function login(tab, email, password = testPassword) {
 
 async function logout(tab) {
   await tab.eval("openCloudPanel();document.getElementById('cloud-logout').click()");
-  await tab.wait("!cloudSync.context && document.getElementById('cloud-status').textContent==='本地模式'");
+  await tab.wait("!cloudSync.context && document.getElementById('cloud-status').textContent===(readLegacyRetirement()?'未登录':'本地模式')");
 }
 
 function addOrder(tab, customer, product = 'TEST', qty = 3) {
@@ -534,7 +535,7 @@ async function syncTests() {
   await check('old v5 and v6 backups require account-specific confirmation', async () => {
     await tab.wait('cloudSync.canRestore');
     await restoreFixture(tab, 5, false);
-    assert.match(await tab.eval('restoreConfirmation'), /当前云端账号.*校验版本/);
+    assert.match(await tab.eval('restoreConfirmation'), /云端账号 m5-alice@example\.com.*校验版本/);
     assert.equal(cloudA.version, 5);
     await tab.eval('closeImportModal()');
     await restoreFixture(tab, 6);
@@ -610,6 +611,8 @@ async function main() {
     await workerTests();
     await syncTests();
     await migrationTests();
+    await retirementTests();
+    await orderRevealTests();
   }
   await check('no browser JavaScript exceptions', () => assert.deepEqual(exceptions, []));
 }
@@ -773,6 +776,193 @@ async function migrationTests() {
     assert.equal(await mismatch.tab.eval('cloudSync.canWrite'),false);
     assert.equal(await mismatch.tab.eval(localSnapshot),saved);
     assert.equal(mismatch.requests.length,1);
+  });
+  await browser.stop();
+}
+
+async function retirementTests() {
+  const {origin,states,requests}=await mockCloud({migration:true});
+  const site=await serve((req,res)=>staticResponse(req,res,{cloudOrigin:origin}));
+  const cloud=states.get(alice.id),profile='retirement';
+  let browser=await startBrowser(profile),tab=await browser.tab(site,asIPhone);
+  const oldKeys="LEGACY_RETIREMENT_KEYS.map(key=>localStorage.getItem(key))";
+  const allRemoved=`${oldKeys}.every(value=>value===null)`;
+  const retired="readLegacyRetirement()?.status==='complete'";
+  const blank="tripBook===null && orders.length===0 && purchaseLogs.length===0 && !document.getElementById('cloud-login-required').hidden";
+  const open=()=>tab.eval("openCloudPanel();document.getElementById('cloud-retire-old').click()");
+  const confirmDeletion=()=>tab.eval("document.getElementById('cloud-retirement-backups').checked=true;confirmLegacyRetirement()");
+  await tab.wait('cloudSync.workerReady',25000);
+  await seedMigration(tab);
+  await tab.eval(`for(const key of LEGACY_RETIREMENT_KEYS)if(localStorage.getItem(key)===null)localStorage.setItem(key,'[]');
+    localStorage.setItem('other-app-test','keep');localStorage.setItem(LEDGER_ACCOUNT+${JSON.stringify(bob.id)},'other-test-account');`);
+  const original=await tab.eval(oldKeys);
+  await tab.reload(); await login(tab,alice.email); await tab.wait(synced);
+  await reviewMigration(tab); await approveMigration(tab);
+  await tab.wait("cloudSync.context?.record?.initialImport?.status==='verified'",25000); await tab.wait(synced);
+
+  await check('verified migration and opening the cleanup panel do not delete any old keys',async()=>{
+    await open();
+    assert.equal(await tab.eval("document.getElementById('cloud-retirement-submit').disabled"),true);
+    await tab.eval("window.confirm=message=>{window.cleanupWarning=message;return false;}");
+    await confirmDeletion();
+    assert.match(await tab.eval('cleanupWarning'),/不可撤销/);
+    assert.deepEqual(await tab.eval(oldKeys),original);
+    assert.equal(await tab.eval('readLegacyRetirement()'),null);
+    await tab.eval('closeLegacyRetirement()');
+  });
+  await check('offline pending changes and conflicted accounts cannot clean up',async()=>{
+    await open(); await tab.eval('window.confirm=()=>true');
+    await tab.offline(true); await addOrder(tab,'PendingSynthetic');
+    await tab.wait('cloudSync.pending()');
+    await confirmDeletion();
+    assert.equal(await tab.eval('readLegacyRetirement()'),null);
+    await tab.offline(false); await tab.wait(synced);
+    await tab.eval('cloudSync.context.record.conflict=true;renderCloudStatus()');
+    try {
+      await confirmDeletion();
+      assert.equal(await tab.eval('readLegacyRetirement()'),null);
+    } finally { await tab.eval('cloudSync.context.record.conflict=false;closeLegacyRetirement()'); }
+    assert.deepEqual(await tab.eval(oldKeys),original);
+  });
+  await check('unmigrated changes to the old source block cleanup',async()=>{
+    await open();
+    const raw=await tab.eval('localStorage.getItem(BOOK_KEY)');
+    await tab.eval("const draft=JSON.parse(localStorage.getItem(BOOK_KEY));draft.trips[0].name+='变更';localStorage.setItem(BOOK_KEY,JSON.stringify(draft))");
+    try {
+      await confirmDeletion();
+      assert.equal(await tab.eval('readLegacyRetirement()'),null);
+      assert.match(await tab.eval("document.getElementById('toast').textContent"),/与首次迁移的内容不同/);
+    } finally { await tab.eval(`localStorage.setItem(BOOK_KEY,${JSON.stringify(raw)});closeLegacyRetirement()`); }
+  });
+  await check('interrupted cleanup leaves a durable marker and cannot revive v5/v6 after logout',async()=>{
+    await open();
+    await tab.eval(`window.nativeRetireRemove=Storage.prototype.removeItem;
+      Storage.prototype.removeItem=function(key){if(key===V5_KEYS[0])throw Error('test interruption');return nativeRetireRemove.call(this,key);}`);
+    try { await confirmDeletion(); }
+    finally { await tab.eval('Storage.prototype.removeItem=nativeRetireRemove'); }
+    assert.equal(await tab.eval('readLegacyRetirement().status'),'pending');
+    assert.equal(await tab.eval('!!localStorage.getItem(BOOK_KEY) && !!localStorage.getItem(V5_KEYS[0])'),true);
+    await logout(tab); await tab.reload(); await tab.wait(blank);
+    assert.equal(await tab.eval('readLegacyRetirement().status'),'pending');
+    await login(tab,alice.email); await tab.wait(synced);
+  });
+  await check('confirmed cleanup removes all old keys and preserves session, cloud cache, server and other storage',async()=>{
+    await tab.eval("window.confirm=()=>true;cloudSync.selectTrip('migration-first')");
+    const preserved=`JSON.stringify([localStorage.getItem(LEDGER_SESSION),cloudSync.exportRaw(),cloudSync.selection(),
+      localStorage.getItem('other-app-test'),localStorage.getItem(LEDGER_ACCOUNT+${JSON.stringify(bob.id)})])`;
+    const before=await tab.eval(preserved),cacheNames=await tab.eval('caches.keys()');
+    const version=cloud.version,requestCount=requests.length,remote=structuredClone(cloud.trips);
+    await open(); await confirmDeletion();
+    await tab.wait(retired);
+    assert.equal(await tab.eval(allRemoved),true);
+    assert.equal(await tab.eval(preserved),before);
+    assert.deepEqual(await tab.eval('caches.keys()'),cacheNames);
+    assert.equal(cloud.version,version);
+    assert.deepEqual(cloud.trips,remote);
+    assert.equal(requests.length,requestCount);
+  });
+  await check('logout, refresh and browser restart show a locked empty ledger and login-to-restore action',async()=>{
+    await logout(tab); await tab.reload(); await tab.wait(blank);
+    const before=await tab.eval('readLegacyRetirement()');
+    await browser.stop(); browser=await startBrowser(profile); tab=await browser.tab(site,asIPhone);
+    await tab.wait(blank);
+    assert.deepEqual(await tab.eval('readLegacyRetirement()'),before);
+    await tab.eval("openAddModal();openStockModal();createTrip('No local write');togglePaid('test_order_01');clearAllData();");
+    assert.equal(await tab.eval("!document.getElementById('modal-add').classList.contains('show') && !document.getElementById('modal-stock').classList.contains('show')"),true);
+    assert.equal(await tab.eval(allRemoved),true);
+    await tab.eval("document.querySelector('#cloud-login-required .btn-ghost').click()");
+    assert.equal(await tab.eval("document.getElementById('modal-cloud').classList.contains('show') && !document.getElementById('modal-import').classList.contains('show')"),true);
+  });
+  await check('login restores the cached cloud ledger and offline additions still sync after cleanup',async()=>{
+    await login(tab,alice.email); await tab.wait(synced);
+    assert.equal(await tab.eval('tripBook.trips[0].id'),'migration-first');
+    assert.equal(await tab.eval('!!cloudSync.exportRaw()'),true);
+    const version=cloud.version;
+    await tab.offline(true);
+    const id=await addOrder(tab,'RetiredOfflineSynthetic');
+    assert.ok(id);
+    assert.equal(await tab.eval('cloudSync.pending()'),true);
+    await tab.offline(false); await tab.wait(synced);
+    assert.equal(cloud.version,version+1);
+    assert.equal(cloud.trips[0].orders.at(-1).id,id);
+    assert.equal(await tab.eval(allRemoved),true);
+  });
+  await check('restoring a backup after cleanup requires selecting the account and preserves the safety copy',async()=>{
+    await restoreFixture(tab,6);
+    assert.equal(await tab.eval("document.getElementById('btn-confirm-import').disabled"),true);
+    const version=cloud.version;
+    assert.equal(await tab.eval('cloudSync.pending()'),false);
+    await tab.eval("document.getElementById('import-cloud-account').value=cloudBookOwner;updateImportSummary();confirmImportBackup()");
+    await tab.wait(synced);
+    assert.equal(cloud.version,version+1);
+    assert.equal(await tab.eval('cloudSync.context.record.safety.type'),'all-trips');
+    assert.equal(await tab.eval(allRemoved),true);
+  });
+  await browser.stop();
+}
+
+async function orderRevealTests() {
+  const site=await serve(staticResponse),browser=await startBrowser('order-reveal'),tab=await browser.tab(site);
+  await tab.eval(`(()=>{
+    const book=cloneData(tripBook);
+    book.trips[0].orders=['AAA','ZZZ'].flatMap(customer=>Array.from({length:120},(_,i)=>({
+      id:customer+i,customer,product:'SAME',qty:1,sellingPrice:3,purchased:0,isPaid:false,location:'',note:''
+    })));
+    localStorage.setItem(BOOK_KEY,JSON.stringify(book));
+  })()`);
+  await tab.reload();
+  await tab.eval(`window.reveals=[];window.nativeRevealScroll=window.scrollTo.bind(window);
+    window.scrollTo=options=>{
+      const row=document.querySelector('#customer-table-container .order-just-added');
+      reveals.push({id:row?.dataset.id,options,closed:!document.getElementById('modal-add').classList.contains('show'),
+        stored:JSON.parse(localStorage.getItem(BOOK_KEY)).trips[0].orders.some(order=>order.id===row?.dataset.id)});
+      nativeRevealScroll(options);
+    };`);
+  let id;
+  const centered=`(()=>{const r=document.querySelector('tr.order-just-added')?.getBoundingClientRect();
+    const top=document.querySelector('.top-bar').getBoundingClientRect().bottom,bottom=document.querySelector('.bottom-bar').getBoundingClientRect().top;
+    return r&&r.top>=top&&r.bottom<=bottom&&Math.abs((r.top+r.bottom-top-bottom)/2)<28;})()`;
+  await check('desktop locates the saved unique order among 240 rows and fades one blue highlight',async()=>{
+    id=await addOrder(tab,'AAA','SAME');
+    await tab.wait('reveals.length===1');
+    const event=await tab.eval('reveals[0]');
+    assert.equal(event.id,id);
+    assert.equal(event.closed&&event.stored,true);
+    assert.equal(event.options.behavior,'smooth');
+    assert.equal(await tab.eval("document.querySelectorAll('#customer-table-container .order-just-added').length"),1);
+    assert.equal(await tab.eval("getComputedStyle(document.querySelector('.order-just-added td')).animationName"),'none');
+    assert.equal(await tab.eval("getComputedStyle(document.querySelector('.order-just-added td')).transitionProperty"),'background-color');
+    await tab.wait(centered);
+    await tab.wait("!document.querySelector('.order-just-added')",3200);
+  });
+  await check('failed saves, invalid input and cancelled drafts do not scroll or highlight',async()=>{
+    await tab.eval(`openAddModal();closeAddModal();confirmAddOrder();openAddModal();showAddStep(2);
+      document.getElementById('input-confirm-qty').value='';confirmAddOrder();closeAddModal();
+      window.nativeRevealSet=Storage.prototype.setItem;Storage.prototype.setItem=function(key,value){
+      if(key===BOOK_KEY)throw new DOMException('test quota','QuotaExceededError');return nativeRevealSet.call(this,key,value);}`);
+    try { await addOrder(tab,'AAA','SAME'); }
+    finally { await tab.eval('Storage.prototype.setItem=nativeRevealSet;closeAddModal()'); }
+    await delay(160);
+    assert.equal(await tab.eval('reveals.length'),1);
+    assert.equal(await tab.eval('orders.length'),241);
+    assert.equal(await tab.eval("!!document.querySelector('.order-just-added')"),false);
+  });
+  await check('customer-card text entry waits for the mobile keyboard and scrolls to the new matching row',async()=>{
+    await tab.send('Emulation.setDeviceMetricsOverride',{width:390,height:844,deviceScaleFactor:1,mobile:true});
+    await tab.eval(`const keyboardViewport=new EventTarget();Object.assign(keyboardViewport,{height:420,scale:1,offsetTop:0});
+      Object.defineProperty(window,'visualViewport',{configurable:true,value:keyboardViewport});
+      document.querySelector('[data-customer="AAA"] .btn-add-for-customer').click();
+      document.getElementById('input-raw-order').value='AAA SAME 2 30';parseAndReview();
+      document.getElementById('input-confirm-customer').focus();confirmAddOrder();`);
+    const mobileId=await tab.eval('orders.at(-1).id');
+    assert.notEqual(mobileId,id);
+    await delay(150);
+    assert.equal(await tab.eval('reveals.length'),1);
+    await tab.eval("keyboardViewport.height=844;keyboardViewport.dispatchEvent(new Event('resize'))");
+    await tab.wait('reveals.length===2');
+    assert.equal(await tab.eval('reveals[1].id'),mobileId);
+    assert.equal(await tab.eval('reveals[1].closed && reveals[1].stored'),true);
+    await tab.wait(centered);
   });
   await browser.stop();
 }

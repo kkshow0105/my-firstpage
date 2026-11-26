@@ -4,7 +4,7 @@ const LEDGER_PUBLISHABLE_KEY = 'sb_publishable__ZoXRhw5WbM1NijGbojSYw_8m8LEDaC';
 const LEDGER_SESSION = 'dual_table_cloud_session_v1';
 const LEDGER_ACCOUNT = 'dual_table_cloud_account_v1:';
 const LEDGER_SELECTION = 'dual_table_cloud_trip_v1:';
-const LEDGER_WORKER_POLICY = 'ledger-static-only-v2';
+const LEDGER_WORKER_POLICY = 'ledger-static-only-v3';
 const ledgerUuid = value => typeof value === 'string' && /^[a-f0-9]{8}(?:-[a-f0-9]{4}){3}-[a-f0-9]{12}$/i.test(value);
 const ledgerVersion = value => Number.isSafeInteger(value) && value >= 0;
 const ledgerTripId = value => typeof value === 'string' && /^[a-zA-Z0-9_-]{1,100}$/.test(value);

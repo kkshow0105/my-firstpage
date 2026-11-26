@@ -138,6 +138,11 @@ body{
 .trip-context .trip-overview{flex:1;min-width:0}
 .cloud-status{flex:none;margin-top:4px;padding:4px 8px;border:1px solid var(--separator);border-radius:12px;background:var(--card-bg);color:var(--text);font:inherit;font-size:12px;min-height:36px;cursor:pointer}
 .cloud-status[data-attention="true"]{color:var(--red)}
+#cloud-login-required{max-width:440px;margin:24px auto;padding:20px}
+#cloud-login-required p{margin:8px 0;color:var(--secondary)}
+.cloud-only-signed-out .top-bar,.cloud-only-signed-out .section,.cloud-only-signed-out .bottom-bar{display:none!important}
+#cloud-retirement{margin-top:16px;font-size:14px;line-height:1.6}
+#cloud-retirement label{display:block;margin-top:8px}
 #modal-cloud [hidden]{display:none!important}
 #modal-cloud .modal-hint{overflow-wrap:anywhere}
 #cloud-preview{max-height:40vh;overflow:auto;padding:12px;background:var(--bg);border-radius:10px;white-space:pre-wrap;overflow-wrap:anywhere;font:inherit;font-size:13px}
@@ -240,6 +245,10 @@ tr:last-child td{border-bottom:none}
 .status-dot.urgent{background:var(--red)}.status-dot.done{background:var(--green)}
 tr.row-urgent{background:#fff5f5}
 tr.row-done{background:#f5fff7}
+@media screen{
+  #customer-table-container tr.tap-row>td{transition:background-color .35s ease}
+  #customer-table-container tr.order-just-added>td{background-color:#dcecff}
+}
 /* Prevent text selection on long-press */
 .tap-row{
   -webkit-user-select:none;
@@ -676,7 +685,7 @@ tr.sys-stock td{color:#856404}
         <div class="dropdown-item" onclick="openImportModal()"><span class="d-icon">📤</span> 导入备份数据</div>
         <div class="dropdown-item" onclick="exportRestoreSafety()"><span class="d-icon">🛟</span> 导出恢复前安全副本</div>
         <div class="dropdown-item" onclick="clearAllData()" style="color:var(--red)"><span class="d-icon">🗑️</span> 清空当前行程数据</div>
-        <div class="dropdown-version">v3.0.2</div>
+        <div class="dropdown-version">v3.0.3</div>
       </div>
     </div>
   </div>
@@ -686,6 +695,15 @@ tr.sys-stock td{color:#856404}
       <input type="search" id="searchInput" placeholder="搜索…" autocomplete="off" enterkeyhint="search">
       <button class="search-clear" onclick="clearSearch()" title="清除">✕</button>
     </div>
+  </div>
+</div>
+
+<div id="cloud-login-required" class="card" hidden>
+  <h2>未登录</h2>
+  <p>请登录云端账号继续记账。</p>
+  <div class="btn-row">
+    <button class="btn btn-primary" onclick="openCloudPanel()">登录云端账号</button>
+    <button class="btn btn-ghost" onclick="openImportModal()">登录后恢复备份</button>
   </div>
 </div>
 
@@ -818,6 +836,9 @@ tr.sys-stock td{color:#856404}
     <h2>📤 导入备份数据</h2>
     <p class="modal-hint">先校验文件，再确认目标行程。恢复前自动保留安全副本。</p>
     <input type="file" id="input-import-file" accept=".json,application/json" style="display:none" onchange="handleImportFile(event)">
+    <div id="import-cloud-target" class="form-group" hidden>
+      <label for="import-cloud-account">选择恢复目标账号</label><select id="import-cloud-account" class="trip-select" onchange="updateImportSummary()"></select>
+    </div>
     <div id="legacy-import-target" hidden>
       <div class="form-group"><label for="import-trip-target">旧版备份：请选择导入位置</label><select id="import-trip-target" class="trip-select" onchange="updateImportSummary()"></select></div>
       <div class="form-group"><label for="import-trip-name">新行程名称（选择新建时填写）</label><input id="import-trip-name" maxlength="120" placeholder="例如：日本行 · 2026年11月" oninput="updateImportSummary()"></div>
@@ -969,6 +990,7 @@ tr.sys-stock td{color:#856404}
     <div id="cloud-commands" hidden>
       <button class="btn btn-primary" id="cloud-import-local" onclick="reviewLocalMigration()" hidden>迁移本机旧账本</button>
       <button class="btn btn-ghost" id="cloud-audit" onclick="showCloudAudit()" hidden>核对云端账本</button>
+      <button class="btn btn-ghost" id="cloud-retire-old" onclick="openLegacyRetirement()" hidden>清空已迁移的旧本地账本</button>
       <button class="btn btn-ghost" id="cloud-retry" onclick="cloudSync.schedule()">重试同步</button>
       <button class="btn btn-ghost" id="cloud-show-remote" onclick="showCloudPreview()" hidden>查看云端最新</button>
       <button class="btn btn-primary" id="cloud-export" onclick="exportCloudPending()" hidden>导出本地待同步数据</button>
@@ -977,6 +999,11 @@ tr.sys-stock td{color:#856404}
     <div id="cloud-migration" hidden>
       <label><input id="cloud-migration-confirmed" type="checkbox" onchange="renderCloudStatus()"> 我确认这是原 iPhone 主屏幕账本，两份完整备份已保存。</label>
       <div class="btn-row"><button class="btn btn-ghost" onclick="clearCloudPreview();renderCloudStatus()">取消迁移</button><button class="btn btn-primary" id="cloud-migration-submit" onclick="confirmLocalMigration()" disabled>确认上传全部行程</button></div>
+    </div>
+    <div id="cloud-retirement" hidden>
+      <p>本机旧账本及历史副本将永久删除。云端账本、离线缓存和外部备份会保留。退出登录后，须重新登录才能记账。</p>
+      <label><input id="cloud-retirement-backups" type="checkbox" onchange="renderCloudStatus()"> 我已保存两份完整备份。</label>
+      <div class="btn-row"><button class="btn btn-ghost" onclick="closeLegacyRetirement()">取消</button><button class="btn btn-warn" id="cloud-retirement-submit" onclick="confirmLegacyRetirement()" disabled>清空本机旧账本</button></div>
     </div>
     <pre id="cloud-preview" hidden></pre>
     <div class="btn-row"><button class="btn btn-ghost" onclick="closeCloudPanel()">关闭</button></div>
@@ -992,11 +1019,13 @@ tr.sys-stock td{color:#856404}
 const BOOK_KEY='dual_table_trip_book_v1';
 const ACTIVE_TRIP_KEY='dual_table_active_trip_v1';
 const RESTORE_SAFETY_KEY='dual_table_restore_safety_v1';
+const LEGACY_RETIREMENT_KEY='dual_table_legacy_retirement_v1';
 const TRIP_STATUSES={'planned':'待出发','active':'进行中','archived':'已归档'};
 let tripBook=null,activeTripId=null,tripEpoch=0,pendingImport=null;
 let importReadToken=0,lastLocalCommit=null;
 let cloudSync=null,cloudBookOwner=null,localProtection=null,cloudLoginBusy=false,cloudPreviewToken=0;
 let migrationReview=null,migrationBusy=false;
+let retirementBusy=false;
 
 function newTripId(){
   return globalThis.crypto?.randomUUID?.()||'trip-'+Date.now().toString(36)+'-'+Array.from(crypto.getRandomValues(new Uint32Array(4)),n=>n.toString(16)).join('-');
@@ -1048,6 +1077,7 @@ function stateSummary(state){
 }
 function initializeData(){
   try{
+    if(readLegacyRetirement())return;
     const reading=readRawData();
     if(reading.errors.length)throw Error(reading.errors.join('\n'));
     if(reading.raw[BOOK_KEY]!==null){
@@ -1116,6 +1146,7 @@ function readWatchedRaw(){
 }
 function sameRaw(a,b){return !!a&&WATCH_KEYS.every(k=>a[k]===b[k]);}
 function commitTripBook(candidate,{recovery=false,safety=false,expectedRaw=null}={}){
+  if(legacyLoginRequired())return false;
   if(dataProtection&&!recovery)return false;
   try{
     const validated=validateTripBook(candidate),observed=readWatchedRaw();
@@ -1164,7 +1195,7 @@ function persistDataState(previousState,_keys){
   restoreDataState(previousState);renderAll();return false;
 }
 function reloadDataFromStorage(previousState){
-  if(dataProtection)return false;
+  if(dataProtection||legacyLoginRequired())return false;
   try{
     const observed=readWatchedRaw();
     if(storageBaseline&&WATCH_KEYS.filter(k=>k!==BOOK_KEY).some(k=>observed[k]!==storageBaseline[k]))throw Error('旧版窗口修改了历史存储。已暂停记账，请导出恢复资料后核对，不能自动覆盖新账本');
@@ -1184,7 +1215,13 @@ function queueStorageSync(){
   },50);
 }
 window.addEventListener('storage',e=>{
+  if(e.key===LEGACY_RETIREMENT_KEY){
+    if(!cloudBookOwner&&legacyLoginRequired())switchLedgerAccount(null);
+    else if(cloudSync)renderCloudStatus();
+    return;
+  }
   if(cloudBookOwner)return;
+  if(legacyLoginRequired())return;
   if(e.key!==null&&!WATCH_KEYS.includes(e.key))return;
   if(e.key===BOOK_KEY&&e.newValue&&lastLocalCommit){
     try{
@@ -1336,6 +1373,11 @@ function openImportModal(){
   closeMenu();
   if(!canRestoreCloud())return;
   closeImportModal();document.getElementById('modal-import').classList.add('show');
+  const account=document.getElementById('import-cloud-account'),context=cloudSync?.context;
+  const chooseAccount=!!context&&!!readLegacyRetirement();
+  document.getElementById('import-cloud-target').hidden=!chooseAccount;
+  account.replaceChildren(new Option('请选择恢复账号',''));
+  if(chooseAccount)account.add(new Option(context.session.email,context.session.userId));
   document.getElementById('legacy-import-target').hidden=true;document.getElementById('btn-confirm-import').hidden=true;document.getElementById('import-summary').textContent='';
 }
 async function legacyBackupId(state){
@@ -1346,6 +1388,7 @@ async function legacyBackupId(state){
 }
 function handleImportFile(event){
   const file=event.target.files?.[0];if(!file)return;
+  if(legacyLoginRequired())return;
   const epoch=tripEpoch,token=++importReadToken,reader=new FileReader();pendingImport=null;
   document.getElementById('btn-confirm-import').hidden=true;document.getElementById('legacy-import-target').hidden=true;
   let expectedRaw;
@@ -1392,11 +1435,15 @@ function importDescription(){
 function updateImportSummary(){
   document.getElementById('import-summary').textContent=importDescription();
   const p=pendingImport,target=document.getElementById('import-trip-target').value;
-  document.getElementById('btn-confirm-import').disabled=!p||(p.kind==='legacy'&&(!target||(target==='__new__'&&!validTripName(document.getElementById('import-trip-name').value.trim()))));
+  document.getElementById('btn-confirm-import').disabled=!p||!restoreAccountSelected()||(p.kind==='legacy'&&(!target||(target==='__new__'&&!validTripName(document.getElementById('import-trip-name').value.trim()))));
+}
+function restoreAccountSelected(){
+  return !readLegacyRetirement()||!!cloudBookOwner&&document.getElementById('import-cloud-account').value===cloudBookOwner;
 }
 function confirmImportBackup(){
   const p=pendingImport;if(!p||p.epoch!==tripEpoch)return;
   if(!canRestoreCloud())return;
+  if(!restoreAccountSelected()){toast('请先选择要恢复到的云端账号');return;}
   try{
     if(!sameRaw(readWatchedRaw(),p.expectedRaw))throw Error('账本已被其他操作更新，请重新选择文件');
     let trips=tripBook?cloneData(tripBook.trips):[],selected;
@@ -1418,7 +1465,7 @@ function confirmImportBackup(){
     }
     const candidate=validateTripBook({schemaVersion:1,revision:0,commitId:newTripId(),migration:tripBook?.migration||{status:'complete',recoveredAt:new Date().toISOString()},trips});
     const description=importDescription();
-    const target=cloudBookOwner?'\n将恢复到当前云端账号。先保存恢复前安全副本，云端提交时会校验版本。':'';
+    const target=cloudBookOwner?'\n将恢复到云端账号 '+cloudSync.context.session.email+'。先保存恢复前安全副本，云端提交时会校验版本。':'';
     if(!confirm(description+'\n\n确定恢复？涉及的原数据将被替换；不会逐条合并。'+target+(dataProtection?'\n当前处于恢复保护，请先导出原始恢复资料。':'')))return;
     if(!commitTripBook(candidate,{recovery:!!dataProtection,safety:true,expectedRaw:p.expectedRaw}))return;
     loadTrip(selected);toast('备份已恢复，恢复前安全副本可在菜单中导出');
@@ -1447,6 +1494,8 @@ const SYS_CUSTOMER='【系统库存】';
 const MIGRATION_KEY='dual_table_migration_v6';
 const V5_KEYS=['dual_table_orders_v5','dual_table_purchase_logs_v5','dual_table_product_meta_v5'];
 const WATCH_KEYS=[...DATA_KEYS,MIGRATION_KEY,BOOK_KEY];
+// Remove the active copy last, so an interrupted cleanup can validate its original source again.
+const LEGACY_RETIREMENT_KEYS=[...DATA_KEYS,...V5_KEYS,'dual_table_prepayments_v6',MIGRATION_KEY,RESTORE_SAFETY_KEY,ACTIVE_TRIP_KEY,BOOK_KEY];
 const MAX_MONEY=1e12; // 元；单价、单笔和账本合计均须在可可靠计算的范围内
 let orders=[],purchaseLogs=[],productMeta=Object.create(null);
 let storageBaseline=null;
@@ -1613,10 +1662,12 @@ function downloadRecoveryFile(value,name){
 }
 
 function canWriteCloud(){
+  if(legacyLoginRequired()){toast('请登录云端账号继续记账');return false;}
   if(!cloudBookOwner||cloudSync.canWrite)return true;
   toast('当前窗口暂不能修改云端账本，请查看云端状态。');return false;
 }
 function canRestoreCloud(){
+  if(legacyLoginRequired()){openCloudPanel();toast('请先登录，再选择恢复目标账号');return false;}
   if(!cloudBookOwner||cloudSync.canRestore)return true;
   toast('请联网，等当前账号同步完成并处理冲突后再恢复备份。');return false;
 }
@@ -1625,10 +1676,12 @@ function clearCloudPreview(){
   migrationReview=null;
   document.getElementById('cloud-migration-confirmed').checked=false;
   document.getElementById('cloud-migration').hidden=true;
+  document.getElementById('cloud-retirement-backups').checked=false;
+  document.getElementById('cloud-retirement').hidden=true;
   const preview=document.getElementById('cloud-preview');preview.hidden=true;preview.textContent='';
 }
 function showAccountBook(book){
-  const remembered=activeTripId||cloudSync.selection();
+  const remembered=activeTripId||cloudSync?.selection();
   tripBook=book;
   if(book){
     const trip=book.trips.find(t=>t.id===remembered)||book.trips.find(t=>t.status!=='archived')||book.trips[0];
@@ -1646,6 +1699,21 @@ function showAccountBook(book){
   document.querySelector('.print-title').textContent='📒 双表记账';
   financeToggle.total=false;financeToggle.sales=false;renderAll();
 }
+function readLegacyRetirement(){
+  try{
+    const raw=localStorage.getItem(LEGACY_RETIREMENT_KEY);
+    if(raw===null)return null;
+    const marker=JSON.parse(raw);
+    if(marker?.version===1&&['pending','complete'].includes(marker.status))return marker;
+  }catch{}
+  return{status:'blocked'};
+}
+function legacyLoginRequired(){return !cloudBookOwner&&!!readLegacyRetirement();}
+function showCloudLoginRequired(){
+  const required=legacyLoginRequired();
+  document.body.classList.toggle('cloud-only-signed-out',required);
+  document.getElementById('cloud-login-required').hidden=!required;
+}
 function switchLedgerAccount(context){
   if(!cloudBookOwner&&context&&dataProtection)localProtection={dataProtection,tripBook,activeTripId};
   clearTimeout(storageSyncTimer);storageSyncPending=false;lastLocalCommit=null;storageBaseline=null;
@@ -1654,8 +1722,10 @@ function switchLedgerAccount(context){
   dataProtection=null;document.getElementById('data-protection').hidden=true;
   document.querySelectorAll('.top-bar,.section,.bottom-bar').forEach(el=>el.inert=false);
   cloudBookOwner=context?.session.userId??null;
+  showCloudLoginRequired();
   showAccountBook(null);
   if(context)return;
+  if(legacyLoginRequired()){localProtection=null;return;}
   if(localProtection){
     ({dataProtection,tripBook,activeTripId}=localProtection);localProtection=null;
     showDataProtection(dataProtection.message,dataProtection.snapshot);
@@ -1664,7 +1734,8 @@ function switchLedgerAccount(context){
 }
 function renderCloudStatus(){
   const context=cloudSync.context,record=context?.record,ready=cloudSync.workerReady,online=navigator.onLine;
-  let status='本地模式',detail=cloudSync.message;
+  const retirement=readLegacyRetirement();
+  let status=retirement?'未登录':'本地模式',detail=cloudSync.message;
   if(context){
     if(record?.conflict){status='同步冲突';detail=record.initialImport?.status==='different'
       ?'首次迁移后的云端账本与原始快照不一致。已停止写入，请保留两份数据并核对。'
@@ -1687,10 +1758,16 @@ function renderCloudStatus(){
   document.getElementById('cloud-login').hidden=!!context;
   document.getElementById('cloud-login-submit').disabled=!ready||!online||cloudLoginBusy;
   document.getElementById('cloud-commands').hidden=!context;
-  document.getElementById('cloud-legacy').textContent=record?.initialImport?.status==='verified'
+  document.getElementById('cloud-legacy').textContent=retirement
+    ?(retirement.status==='complete'?'旧本地账本已清空，请登录云端账号继续记账。':'旧本地账本已停用。若清理中断，可在原 iPhone 登录正式账号后继续。')
+    :record?.initialImport?.status==='verified'
     ?'本机旧账本仍独立保留，退出云端后可查看。'
     :'此设备原有的本地账本尚未迁移，退出登录后可继续使用。';
-  document.getElementById('cloud-import-local').hidden=!isIPhonePwa()||!cloudSync.canImportLocal||!!migrationReview;
+  document.getElementById('cloud-import-local').hidden=!!retirement||!isIPhonePwa()||!cloudSync.canImportLocal||!!migrationReview;
+  document.getElementById('cloud-retire-old').hidden=!isIPhonePwa()||!context?.session.initialImport||
+    record?.initialImport?.status!=='verified'||!!retirement&&retirement.status!=='pending'||!document.getElementById('cloud-retirement').hidden;
+  document.getElementById('cloud-retirement-submit').disabled=retirementBusy||!canRetireLegacyBook(context)||
+    !document.getElementById('cloud-retirement-backups').checked;
   document.getElementById('cloud-audit').hidden=!context?.session.initialImport||!!migrationReview;
   document.getElementById('cloud-audit').disabled=!ready||!online;
   document.getElementById('cloud-migration-submit').disabled=migrationBusy||!cloudSync.canImportLocal||!document.getElementById('cloud-migration-confirmed').checked;
@@ -1709,6 +1786,52 @@ function closeCloudPanel(){
 }
 function isIPhonePwa(){
   return /iPhone|iPod/.test(navigator.userAgent)&&(navigator.standalone===true||matchMedia('(display-mode: standalone)').matches);
+}
+function canRetireLegacyBook(context){
+  const receipt=context?.record?.initialImport,marker=readLegacyRetirement();
+  return isIPhonePwa()&&!!context?.session.initialImport&&cloudSync.isCurrent(context)&&cloudSync.canRestore&&
+    context.confirmed&&context.record.base>=1&&receipt?.status==='verified'&&
+    (!marker||marker.status==='pending'&&marker.userId===context.session.userId&&marker.digest===receipt.digest);
+}
+function openLegacyRetirement(){
+  if(!canRetireLegacyBook(cloudSync.context)){toast('请在原 iPhone 登录正式账号，等首次迁移核对通过并显示已同步后再清理。');return;}
+  clearCloudPreview();
+  document.getElementById('cloud-retirement').hidden=false;
+  renderCloudStatus();
+}
+function closeLegacyRetirement(){clearCloudPreview();renderCloudStatus();}
+async function confirmLegacyRetirement(){
+  const context=cloudSync.context,review=document.getElementById('cloud-retirement'),backups=document.getElementById('cloud-retirement-backups');
+  if(retirementBusy||review.hidden||!backups.checked||!canRetireLegacyBook(context)){toast('清理条件未满足，本机旧账本未删除。');return;}
+  if(!confirm('永久清空这部 iPhone 中已迁移的旧本地账本？此操作不可撤销。云端账本、离线缓存和外部备份会保留。'))return;
+  retirementBusy=true;renderCloudStatus();
+  let started=false;
+  try{
+    const record=context.record,receipt=record.initialImport,marker=readLegacyRetirement();
+    const old=LEGACY_RETIREMENT_KEYS.map(key=>localStorage.getItem(key));
+    const source=old.at(-1);
+    if(source===null&&!marker)throw Error('此设备找不到已验证的旧账本。');
+    if(source!==null&&await ledgerDigest(validateTripBook(JSON.parse(source)).trips)!==receipt.digest)
+      throw Error('旧本地账本与首次迁移的内容不同，请先核对备份。');
+    const remote=await cloudSync.preview();
+    if(remote.version!==record.base||await ledgerDigest(remote.trips)!==await ledgerDigest(record.book.trips))
+      throw Error('云端账本已有变化，请先完成同步。');
+    if(review.hidden||!backups.checked||!canRetireLegacyBook(context)||context.record!==record||
+      LEGACY_RETIREMENT_KEYS.some((key,index)=>localStorage.getItem(key)!==old[index]))
+      throw Error('账号、同步状态或旧账本已变化，请重新核对。');
+    // Block old initialization before removing any keys, including if deletion is interrupted.
+    const pending={version:1,status:'pending',userId:context.session.userId,digest:receipt.digest};
+    localStorage.setItem(LEGACY_RETIREMENT_KEY,JSON.stringify(pending));
+    started=true;
+    for(const key of LEGACY_RETIREMENT_KEYS)localStorage.removeItem(key);
+    if(LEGACY_RETIREMENT_KEYS.some(key=>localStorage.getItem(key)!==null))throw Error('仍有旧账本键');
+    localProtection=null;
+    localStorage.setItem(LEGACY_RETIREMENT_KEY,JSON.stringify({...pending,status:'complete'}));
+    clearCloudPreview();toast('旧本地账本已清空，云端账本与离线缓存已保留。');
+  }catch(error){
+    if(started||readLegacyRetirement()?.status==='pending')toast('旧账本清理尚未完成。旧账本已停用，请保留备份并重试清理。');
+    else toast('无法清空旧本地账本。'+(error.name==='Error'||error.name==='SyntaxError'?error.message:'请检查网络或浏览器存储后重试。'));
+  }finally{retirementBusy=false;renderCloudStatus();}
 }
 function ledgerAuditText(trips){
   const amount=value=>'¥'+value.toFixed(2);
@@ -1777,7 +1900,7 @@ async function submitCloudLogin(event){
   finally{cloudLoginBusy=false;renderCloudStatus();}
 }
 async function leaveCloud(){
-  try{await cloudSync.signOut();toast('已退出云端，回到本地模式');}
+  try{await cloudSync.signOut();toast(legacyLoginRequired()?'已退出云端，请登录后继续记账':'已退出云端，回到本地模式');}
   catch(error){toast(error.message);}
 }
 async function showCloudPreview(){
@@ -1896,12 +2019,14 @@ document.addEventListener('click',function(e){const w=document.getElementById('m
 // 搜索（按标签页分工）
 // ═══════════════════════════════════════════════════════
 function toggleSearch(){
+  orderRevealToken++;
   const wrap=document.getElementById('searchWrap'),input=document.getElementById('searchInput');
   wrap.classList.toggle('open');
   if(wrap.classList.contains('open')){input.value='';input.focus();closeMenu();}
   else clearSearch();
 }
 function clearSearch(){
+  orderRevealToken++;
   document.getElementById('searchInput').value='';
   document.getElementById('searchWrap').classList.remove('open');
   document.querySelectorAll('#tab-products tr').forEach(r=>r.style.display='');
@@ -1911,6 +2036,7 @@ function clearSearch(){
   document.querySelectorAll('#tab-products .location-body.open').forEach(b=>{b.classList.remove('open');const t=b.previousElementSibling;if(t){const a=t.querySelector('.arrow');if(a)a.classList.remove('open');}});
 }
 function doSearch(){
+  orderRevealToken++;
   const q=document.getElementById('searchInput').value.trim();
   if(!q)return;
   if(document.getElementById('tab-customers').classList.contains('active'))searchCustomers(q);
@@ -2611,15 +2737,18 @@ function switchTab(tab){
 // 添加订单 Modal
 // ═══════════════════════════════════════════════════════
 let addDraftActive=false; // 成功提交或关闭后失效；保存失败仍可重试。
+let orderRevealToken=0;
 function openAddModal(){
+  if(legacyLoginRequired()){toast('请登录云端账号继续记账');return;}
   addDraftActive=true;
   document.getElementById('input-order-paid').checked=false;
   document.getElementById('modal-add').classList.add('show');showAddStep(1);
   document.getElementById('input-raw-order').value='';
   document.getElementById('order-input-hint').style.display='none';
-  requestAnimationFrame(()=>{requestAnimationFrame(()=>{const i=document.getElementById('input-raw-order');i.focus();i.click();});});
+  requestAnimationFrame(()=>{requestAnimationFrame(()=>{if(!addDraftActive||!document.getElementById('add-step1').classList.contains('active'))return;const i=document.getElementById('input-raw-order');i.focus();i.click();});});
 }
 function openAddModalForCustomer(customer){
+  if(legacyLoginRequired()){toast('请登录云端账号继续记账');return;}
   addDraftActive=true;
   document.getElementById('input-order-paid').checked=false;
   document.getElementById('modal-add').classList.add('show');showAddStep(1);
@@ -2627,6 +2756,7 @@ function openAddModalForCustomer(customer){
   inp.value=JSON.stringify(customer)+' ';
   updateOrderHint(inp.value);
   requestAnimationFrame(()=>{requestAnimationFrame(()=>{
+    if(!addDraftActive||!document.getElementById('add-step1').classList.contains('active'))return;
     inp.focus();
     inp.setSelectionRange(inp.value.length,inp.value.length);
   });});
@@ -2655,9 +2785,37 @@ function parseAndReview(){
   document.getElementById('input-confirm-qty').value=p.qty;
   document.getElementById('input-confirm-price').value=p.sellingPrice||'';
   document.getElementById('input-confirm-location').value=finalLocation;
-  showAddStep(2);requestAnimationFrame(()=>{requestAnimationFrame(()=>{const i=document.getElementById('input-confirm-customer');i.focus();i.click();});});
+  showAddStep(2);requestAnimationFrame(()=>{requestAnimationFrame(()=>{if(!addDraftActive||!document.getElementById('add-step2').classList.contains('active'))return;const i=document.getElementById('input-confirm-customer');i.focus();i.click();});});
 }
 function backToStep1(){showAddStep(1);document.getElementById('input-raw-order').focus();}
+function revealAddedOrder(id,waitForKeyboard){
+  const token=++orderRevealToken,epoch=tripEpoch,viewport=window.visualViewport;
+  const reveal=()=>requestAnimationFrame(()=>requestAnimationFrame(()=>{
+    if(token!==orderRevealToken||epoch!==tripEpoch||addDraftActive)return;
+    if(!document.getElementById('tab-customers').classList.contains('active'))switchTab('customers');
+    const row=document.querySelector('#customer-table-container tr[data-id="'+CSS.escape(id)+'"]');
+    if(!row)return;
+    if(!row.getClientRects().length)clearSearch();
+    const visibleTop=viewport?.offsetTop??0,visibleBottom=visibleTop+(viewport?.height??window.innerHeight);
+    const top=Math.max(visibleTop,document.querySelector('.top-bar').getBoundingClientRect().bottom);
+    const bottom=Math.min(visibleBottom,document.querySelector('.bottom-bar').getBoundingClientRect().top);
+    const rect=row.getBoundingClientRect();
+    const center=bottom>top?(top+bottom)/2:(visibleTop+visibleBottom)/2;
+    document.querySelector('#customer-table-container .order-just-added')?.classList.remove('order-just-added');
+    row.classList.add('order-just-added');
+    window.scrollTo({top:Math.max(0,window.scrollY+(rect.top+rect.bottom)/2-center),
+      behavior:matchMedia('(prefers-reduced-motion: reduce)').matches?'instant':'smooth'});
+    setTimeout(()=>row.classList.remove('order-just-added'),2000);
+  }));
+  if(!waitForKeyboard||!viewport){reveal();return;}
+  let settled;
+  const finish=()=>{
+    clearTimeout(limit);clearTimeout(settled);viewport.removeEventListener('resize',resize);reveal();
+  };
+  const resize=()=>{clearTimeout(settled);settled=setTimeout(finish,100);};
+  const limit=setTimeout(finish,650);
+  viewport.addEventListener('resize',resize);
+}
 function confirmAddOrder(){
   if(!addDraftActive||!canWriteData())return;
   const customer=document.getElementById('input-confirm-customer').value.trim();
@@ -2673,18 +2831,22 @@ function confirmAddOrder(){
   if(!validMoney(sellingPrice)){toast('价格必须是0至'+MAX_MONEY+'元的有限数字');return;}
   const previousState=captureDataState();
   updateProductMeta(product,location,undefined);
-  orders.push({id:genId(),customer,product,qty,sellingPrice,purchased:0,isPaid,location});
-  autoConsumeSystemStock(orders[orders.length-1].id);
+  const id=genId();
+  orders.push({id,customer,product,qty,sellingPrice,purchased:0,isPaid,location});
+  autoConsumeSystemStock(id);
   if(!persistDataState(previousState,[ORDERS_KEY,META_KEY]))return;
-  addDraftActive=false;
-  renderAll();closeAddModal();
+  const editing=document.activeElement;
+  const viewport=window.visualViewport;
+  const keyboard=viewport?.scale===1&&viewport.height<document.documentElement.clientHeight-80;
+  if(editing?.matches('#modal-add input'))editing.blur();
+  closeAddModal();renderAll();revealAddedOrder(id,keyboard);
   toast('已添加：'+customer+' → '+product+' ×'+qty+(location?' @'+location:''));
 }
 
 // ═══════════════════════════════════════════════════════
 // 采购入库 Modal
 // ═══════════════════════════════════════════════════════
-function openStockModal(){document.getElementById('modal-stock').classList.add('show');showStockStep(1);document.getElementById('input-raw-stock').value='';document.getElementById('stock-input-hint').style.display='none';hideStockAutocomplete();requestAnimationFrame(()=>{requestAnimationFrame(()=>{const i=document.getElementById('input-raw-stock');i.focus();i.click();});});}
+function openStockModal(){if(legacyLoginRequired()){toast('请登录云端账号继续记账');return;}document.getElementById('modal-stock').classList.add('show');showStockStep(1);document.getElementById('input-raw-stock').value='';document.getElementById('stock-input-hint').style.display='none';hideStockAutocomplete();requestAnimationFrame(()=>{requestAnimationFrame(()=>{const i=document.getElementById('input-raw-stock');i.focus();i.click();});});}
 function closeStockModal(){document.getElementById('modal-stock').classList.remove('show');pendingAlloc=null;document.getElementById('stock-input-hint').style.display='none';hideStockAutocomplete();}
 function showStockStep(n){document.getElementById('stock-step1').classList.toggle('active',n===1);document.getElementById('stock-step2').classList.toggle('active',n===2);}
 function previewAllocation(){
@@ -3121,6 +3283,7 @@ document.getElementById('searchInput').addEventListener('compositionend',functio
 });
 document.getElementById('searchInput').addEventListener('keydown',function(e){if(e.key==='Enter'){e.preventDefault();doSearch();}});
 document.getElementById('searchInput').addEventListener('input',function(){
+  orderRevealToken++;
   if(isComposing)return;
   const q=this.value.trim();
   if(document.getElementById('tab-products').classList.contains('active')){
@@ -3196,7 +3359,7 @@ if(typeof CloudLedgerSync==='function'){
       schemaVersion:1,revision:(previous?.revision??-1)+1,commitId:newTripId(),migration:{status:'complete'},
       trips:trips.length?trips:[emptyTrip('新行程')]})});
   cloudSync.start();
-}else{initializeData();renderAll();}
+}else{showCloudLoginRequired();initializeData();renderAll();}
 </script>
 </body>
 </html>
