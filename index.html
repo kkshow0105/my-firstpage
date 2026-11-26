@@ -59,12 +59,12 @@ body{
 }
 .btn-icon:active{transform:scale(0.9);background:#f0f0f5}
 
-/* Search bar — slides down below tabs */
-.search-wrap{overflow:hidden;max-height:0;transition:max-height 0.25s ease,margin 0.25s ease}
-.search-wrap.open{max-height:56px;margin:8px 16px 10px}
+/* Search drawer stays within the visible viewport when the keyboard opens. */
+.search-wrap{display:none}
+.search-wrap.open{display:block;max-height:min(320px,var(--search-available-height,320px));overflow:auto;overscroll-behavior:contain;margin:8px 16px 10px}
 .search-inner{display:flex;gap:8px;align-items:center}
 .search-inner input{
-  flex:1;padding:10px 14px;font-size:16px;
+  flex:1;min-width:0;padding:10px 14px;font-size:16px;
   border:1px solid var(--separator);border-radius:10px;
   background:#f9f9fb;outline:none;transition:border 0.2s,box-shadow 0.2s;
   -webkit-appearance:none;
@@ -77,6 +77,16 @@ body{
   display:flex;align-items:center;justify-content:center;
 }
 .search-clear:active{background:#e5e5ea}
+.customer-index{display:grid;grid-template-columns:repeat(6,minmax(0,1fr));gap:4px;max-width:460px;padding:6px;margin-top:6px;background:var(--bg);border-radius:12px}
+.customer-index[hidden]{display:none}
+.customer-index button{min-height:44px;padding:0;border:1px solid var(--separator);border-radius:8px;background:var(--card-bg);color:#005bbd;font:inherit;font-size:15px;font-weight:650;cursor:pointer}
+.customer-index button:active{background:#dcecff}
+.customer-index button:disabled{color:#85858c;background:#eeeef3;cursor:default}
+@media screen{
+  #customer-table-container .card{transition:background-color .35s ease}
+  #customer-table-container .card.customer-index-target,
+  #customer-table-container .customer-index-target tr.tap-row>td{background-color:#e5f0ff}
+}
 
 /* Flash highlight for customer search */
 @keyframes flashHighlight{
@@ -674,7 +684,7 @@ tr.sys-stock td{color:#856404}
       <button class="tab active" onclick="switchTab('customers')">👤 客户订单</button>
       <button class="tab" onclick="switchTab('products')">📦 商品汇总</button>
     </div>
-    <button class="btn-search" id="btnSearch" onclick="event.stopPropagation();toggleSearch()" title="搜索">🔍</button>
+    <button class="btn-search" id="btnSearch" onclick="event.stopPropagation();toggleSearch()" title="搜索" aria-controls="searchWrap" aria-expanded="false">🔍</button>
     <div class="menu-wrapper" id="menuWrapper">
       <button class="btn-menu" onclick="event.stopPropagation();toggleMenu()" title="功能菜单">⚙️</button>
       <div class="dropdown" id="dropdownMenu">
@@ -685,7 +695,7 @@ tr.sys-stock td{color:#856404}
         <div class="dropdown-item" onclick="openImportModal()"><span class="d-icon">📤</span> 导入备份数据</div>
         <div class="dropdown-item" onclick="exportRestoreSafety()"><span class="d-icon">🛟</span> 导出恢复前安全副本</div>
         <div class="dropdown-item" onclick="clearAllData()" style="color:var(--red)"><span class="d-icon">🗑️</span> 清空当前行程数据</div>
-        <div class="dropdown-version">v3.0.3</div>
+        <div class="dropdown-version">v3.0.4</div>
       </div>
     </div>
   </div>
@@ -695,6 +705,7 @@ tr.sys-stock td{color:#856404}
       <input type="search" id="searchInput" placeholder="搜索…" autocomplete="off" enterkeyhint="search">
       <button class="search-clear" onclick="clearSearch()" title="清除">✕</button>
     </div>
+    <div class="customer-index" id="customerIndex" role="group" aria-label="按客户姓名首字母定位" hidden></div>
   </div>
 </div>
 
@@ -1013,6 +1024,7 @@ tr.sys-stock td{color:#856404}
 <!-- Toast -->
 <div class="toast" id="toast"></div>
 
+<script src="./vendor/pinyin-pro-3.29.5.js"></script>
 <script src="./cloud.js"></script>
 <script>
 // 行程存储层。单个 localStorage 项一次提交完整账本，业务分配仍由 index.html 负责。
@@ -1124,7 +1136,7 @@ function loadTrip(id,{remember=true}={}){
   let remembered=true;
   if(remember){try{if(cloudBookOwner)remembered=cloudSync.selectTrip(id);else localStorage.setItem(ACTIVE_TRIP_KEY,id);}catch{remembered=false;}}
   invalidateTripDrafts();activeTripId=id;restoreDataState(trip);
-  document.getElementById('searchInput').value='';document.getElementById('searchWrap').classList.remove('open');
+  closeSearchPanel();
   document.getElementById('customer-table-container').innerHTML='';document.getElementById('product-table-container').innerHTML='';
   financeToggle.total=false;financeToggle.sales=false;renderAll();
   if(!remembered)alert('行程已切换，账本数据未受影响，但未能记住本次选择。请检查浏览器存储空间。');
@@ -1690,7 +1702,7 @@ function showAccountBook(book){
   invalidateTripDrafts();activeTripId=null;restoreDataState({orders:[],purchaseLogs:[],productMeta:{}});
   document.getElementById('trip-select').replaceChildren();
   document.getElementById('trip-overview').textContent='';
-  document.getElementById('searchInput').value='';document.getElementById('searchWrap').classList.remove('open');
+  closeSearchPanel();
   document.getElementById('customer-table-container').replaceChildren();
   document.getElementById('product-table-container').replaceChildren();
   document.getElementById('trip-manager-list').replaceChildren();
@@ -2018,25 +2030,88 @@ document.addEventListener('click',function(e){const w=document.getElementById('m
 // ═══════════════════════════════════════════════════════
 // 搜索（按标签页分工）
 // ═══════════════════════════════════════════════════════
+const CUSTOMER_INITIALS='ABCDEFGHIJKLMNOPQRSTUVWXYZ#';
+const TRADITIONAL_SURNAMES={萬俟:'万俟',長孫:'长孙',尉遲:'尉迟',單:'单',區:'区',樂:'乐',種:'种'};
+const customerInitialTargets=new Map();
+let ledgerRevealToken=0,ledgerHighlightTimer;
+
+function customerInitial(name){
+  const first=name.match(/^./u)?.[0]||'';
+  const latin=first.normalize('NFD').replace(/\p{Mark}/gu,'');
+  if(/^[A-Z]$/i.test(latin))return latin.toUpperCase();
+  if(!/^\p{Script=Han}$/u.test(first)||!/^\p{Letter}$/u.test(first))return '#';
+  // Use the same surname readings for common traditional variants, without editing the customer name.
+  const readingName=name.replace(/^(萬俟|長孫|尉遲|單|區|樂|種)/,surname=>TRADITIONAL_SURNAMES[surname]);
+  const reading=window.pinyinPro.pinyin(readingName,{surname:'head',pattern:'first',type:'array',toneType:'none'})[0];
+  return /^[A-Z]$/i.test(reading)?reading.toUpperCase():'#';
+}
+function refreshCustomerIndex(){
+  const panel=document.getElementById('customerIndex');
+  customerInitialTargets.clear();
+  if(!document.getElementById('searchWrap').classList.contains('open')||
+    !document.getElementById('tab-customers').classList.contains('active')||!window.pinyinPro){panel.hidden=true;return;}
+  // The DOM already uses localeCompare('zh'). Keep the first rendered customer for each letter.
+  for(const card of document.querySelectorAll('#customer-table-container .card[data-customer]')){
+    const name=card.dataset.customer,initial=customerInitial(name);
+    if(!customerInitialTargets.has(initial))customerInitialTargets.set(initial,name);
+  }
+  panel.hidden=!customerInitialTargets.size;
+  if(panel.hidden)return;
+  if(!panel.childElementCount){
+    for(const initial of CUSTOMER_INITIALS){
+      const button=document.createElement('button');
+      button.type='button';button.textContent=initial;button.dataset.initial=initial;
+      button.setAttribute('aria-label',initial==='#'?'定位到数字或符号开头的客户':'定位到 '+initial+' 开头的客户');
+      button.addEventListener('click',()=>jumpToCustomerInitial(initial));
+      panel.appendChild(button);
+    }
+  }
+  for(const button of panel.children)button.disabled=!customerInitialTargets.has(button.dataset.initial);
+}
+function updateSearchViewport(){
+  const wrap=document.getElementById('searchWrap'),viewport=window.visualViewport;
+  if(!viewport||!wrap.classList.contains('open'))return;
+  const available=viewport.height-Math.max(0,wrap.getBoundingClientRect().top-viewport.offsetTop)-12;
+  wrap.style.setProperty('--search-available-height',Math.max(48,available)+'px');
+}
+function closeSearchPanel(){
+  const input=document.getElementById('searchInput');
+  if(document.activeElement===input)input.blur();
+  input.value='';
+  document.getElementById('searchWrap').classList.remove('open');
+  document.getElementById('btnSearch').setAttribute('aria-expanded','false');
+  document.getElementById('customerIndex').hidden=true;
+}
 function toggleSearch(){
-  orderRevealToken++;
-  const wrap=document.getElementById('searchWrap'),input=document.getElementById('searchInput');
-  wrap.classList.toggle('open');
-  if(wrap.classList.contains('open')){input.value='';input.focus();closeMenu();}
-  else clearSearch();
+  const wrap=document.getElementById('searchWrap');
+  if(wrap.classList.contains('open')){clearSearch();return;}
+  ledgerRevealToken++;
+  document.getElementById('searchInput').value='';
+  wrap.classList.add('open');wrap.scrollTop=0;
+  document.getElementById('btnSearch').setAttribute('aria-expanded','true');
+  closeMenu();refreshCustomerIndex();updateSearchViewport();
 }
 function clearSearch(){
-  orderRevealToken++;
-  document.getElementById('searchInput').value='';
-  document.getElementById('searchWrap').classList.remove('open');
+  ledgerRevealToken++;
+  closeSearchPanel();
   document.querySelectorAll('#tab-products tr').forEach(r=>r.style.display='');
   document.querySelectorAll('.flash-highlight').forEach(c=>c.classList.remove('flash-highlight'));
   resetCustomerFilter();
   // 恢复默认折叠状态
   document.querySelectorAll('#tab-products .location-body.open').forEach(b=>{b.classList.remove('open');const t=b.previousElementSibling;if(t){const a=t.querySelector('.arrow');if(a)a.classList.remove('open');}});
 }
+function jumpToCustomerInitial(initial){
+  const name=customerInitialTargets.get(initial);
+  if(!name||document.getElementById('customerIndex').hidden)return;
+  const keyboard=ledgerKeyboardVisible();
+  clearSearch();
+  afterLedgerViewportSettles(keyboard,viewport=>{
+    const card=document.querySelector('#customer-table-container .card[data-customer="'+CSS.escape(name)+'"]');
+    if(card)centerLedgerTarget(card,'customer-index-target',1800,viewport);
+  });
+}
 function doSearch(){
-  orderRevealToken++;
+  ledgerRevealToken++;
   const q=document.getElementById('searchInput').value.trim();
   if(!q)return;
   if(document.getElementById('tab-customers').classList.contains('active'))searchCustomers(q);
@@ -2280,6 +2355,7 @@ function renderCustomers(){
   const realOrders=orders.filter(o=>o.customer!==SYS_CUSTOMER);
   if(realOrders.length===0){
     container.innerHTML='<div class="empty-state"><div class="icon">📋</div><p>暂无订单<br>点击底部按钮添加</p></div>';
+    refreshCustomerIndex();
     return;
   }
   const grouped=Object.create(null);
@@ -2339,6 +2415,7 @@ function renderCustomers(){
   // 长按删除绑定
   bindLongPress();
   reapplySearch('customers');
+  refreshCustomerIndex();
 }
 
 // ═══════════════════════════════════════════════════════
@@ -2737,7 +2814,6 @@ function switchTab(tab){
 // 添加订单 Modal
 // ═══════════════════════════════════════════════════════
 let addDraftActive=false; // 成功提交或关闭后失效；保存失败仍可重试。
-let orderRevealToken=0;
 function openAddModal(){
   if(legacyLoginRequired()){toast('请登录云端账号继续记账');return;}
   addDraftActive=true;
@@ -2788,33 +2864,47 @@ function parseAndReview(){
   showAddStep(2);requestAnimationFrame(()=>{requestAnimationFrame(()=>{if(!addDraftActive||!document.getElementById('add-step2').classList.contains('active'))return;const i=document.getElementById('input-confirm-customer');i.focus();i.click();});});
 }
 function backToStep1(){showAddStep(1);document.getElementById('input-raw-order').focus();}
-function revealAddedOrder(id,waitForKeyboard){
-  const token=++orderRevealToken,epoch=tripEpoch,viewport=window.visualViewport;
-  const reveal=()=>requestAnimationFrame(()=>requestAnimationFrame(()=>{
-    if(token!==orderRevealToken||epoch!==tripEpoch||addDraftActive)return;
-    if(!document.getElementById('tab-customers').classList.contains('active'))switchTab('customers');
-    const row=document.querySelector('#customer-table-container tr[data-id="'+CSS.escape(id)+'"]');
-    if(!row)return;
-    if(!row.getClientRects().length)clearSearch();
-    const visibleTop=viewport?.offsetTop??0,visibleBottom=visibleTop+(viewport?.height??window.innerHeight);
-    const top=Math.max(visibleTop,document.querySelector('.top-bar').getBoundingClientRect().bottom);
-    const bottom=Math.min(visibleBottom,document.querySelector('.bottom-bar').getBoundingClientRect().top);
-    const rect=row.getBoundingClientRect();
-    const center=bottom>top?(top+bottom)/2:(visibleTop+visibleBottom)/2;
-    document.querySelector('#customer-table-container .order-just-added')?.classList.remove('order-just-added');
-    row.classList.add('order-just-added');
-    window.scrollTo({top:Math.max(0,window.scrollY+(rect.top+rect.bottom)/2-center),
-      behavior:matchMedia('(prefers-reduced-motion: reduce)').matches?'instant':'smooth'});
-    setTimeout(()=>row.classList.remove('order-just-added'),2000);
+function ledgerKeyboardVisible(){
+  const viewport=window.visualViewport;
+  return viewport?.scale===1&&viewport.height<document.documentElement.clientHeight-80;
+}
+function afterLedgerViewportSettles(waitForKeyboard,reveal){
+  const token=++ledgerRevealToken,epoch=tripEpoch,viewport=window.visualViewport;
+  const afterLayout=()=>requestAnimationFrame(()=>requestAnimationFrame(()=>{
+    if(token===ledgerRevealToken&&epoch===tripEpoch&&!addDraftActive)reveal(viewport);
   }));
-  if(!waitForKeyboard||!viewport){reveal();return;}
+  if(!waitForKeyboard||!viewport){afterLayout();return;}
   let settled;
   const finish=()=>{
-    clearTimeout(limit);clearTimeout(settled);viewport.removeEventListener('resize',resize);reveal();
+    clearTimeout(limit);clearTimeout(settled);viewport.removeEventListener('resize',resize);afterLayout();
   };
   const resize=()=>{clearTimeout(settled);settled=setTimeout(finish,100);};
   const limit=setTimeout(finish,650);
   viewport.addEventListener('resize',resize);
+}
+function centerLedgerTarget(target,highlight,duration,viewport){
+  const visibleTop=viewport?.offsetTop??0,visibleBottom=visibleTop+(viewport?.height??window.innerHeight);
+  const top=Math.max(visibleTop,document.querySelector('.top-bar').getBoundingClientRect().bottom);
+  const bottom=Math.min(visibleBottom,document.querySelector('.bottom-bar').getBoundingClientRect().top);
+  const rect=target.getBoundingClientRect(),space=bottom>top?bottom-top:visibleBottom-visibleTop;
+  const center=bottom>top?(top+bottom)/2:(visibleTop+visibleBottom)/2;
+  const anchor=rect.top+Math.min(rect.height,space)/2;
+  clearTimeout(ledgerHighlightTimer);
+  document.querySelector('#customer-table-container :is(.order-just-added,.customer-index-target)')
+    ?.classList.remove('order-just-added','customer-index-target');
+  target.classList.add(highlight);
+  window.scrollTo({top:Math.max(0,window.scrollY+anchor-center),
+    behavior:matchMedia('(prefers-reduced-motion: reduce)').matches?'instant':'smooth'});
+  ledgerHighlightTimer=setTimeout(()=>target.classList.remove(highlight),duration);
+}
+function revealAddedOrder(id,waitForKeyboard){
+  afterLedgerViewportSettles(waitForKeyboard,viewport=>{
+    if(!document.getElementById('tab-customers').classList.contains('active'))switchTab('customers');
+    const row=document.querySelector('#customer-table-container tr[data-id="'+CSS.escape(id)+'"]');
+    if(!row)return;
+    if(!row.getClientRects().length)clearSearch();
+    centerLedgerTarget(row,'order-just-added',2000,viewport);
+  });
 }
 function confirmAddOrder(){
   if(!addDraftActive||!canWriteData())return;
@@ -2836,8 +2926,7 @@ function confirmAddOrder(){
   autoConsumeSystemStock(id);
   if(!persistDataState(previousState,[ORDERS_KEY,META_KEY]))return;
   const editing=document.activeElement;
-  const viewport=window.visualViewport;
-  const keyboard=viewport?.scale===1&&viewport.height<document.documentElement.clientHeight-80;
+  const keyboard=ledgerKeyboardVisible();
   if(editing?.matches('#modal-add input'))editing.blur();
   closeAddModal();renderAll();revealAddedOrder(id,keyboard);
   toast('已添加：'+customer+' → '+product+' ×'+qty+(location?' @'+location:''));
@@ -3271,6 +3360,8 @@ document.getElementById('input-edit-field').addEventListener('keydown',function(
 document.getElementById('input-edit-purchased').addEventListener('keydown',function(e){if(e.key==='Enter')confirmEditPurchased();});
 document.getElementById('input-edit-product-price').addEventListener('keydown',function(e){if(e.key==='Enter')confirmEditProductPrice();});
 // 搜索事件：IME 组合输入防抖 + Enter 搜索 + 实时过滤
+window.visualViewport?.addEventListener('resize',updateSearchViewport);
+window.visualViewport?.addEventListener('scroll',updateSearchViewport);
 document.getElementById('searchInput').addEventListener('compositionstart',function(){isComposing=true;});
 document.getElementById('searchInput').addEventListener('compositionend',function(){
   isComposing=false;
@@ -3283,7 +3374,7 @@ document.getElementById('searchInput').addEventListener('compositionend',functio
 });
 document.getElementById('searchInput').addEventListener('keydown',function(e){if(e.key==='Enter'){e.preventDefault();doSearch();}});
 document.getElementById('searchInput').addEventListener('input',function(){
-  orderRevealToken++;
+  ledgerRevealToken++;
   if(isComposing)return;
   const q=this.value.trim();
   if(document.getElementById('tab-products').classList.contains('active')){

@@ -1,8 +1,8 @@
 // Keep only the PWA shell in Cache Storage. API requests always use the network.
 const CACHE_PREFIX = 'shuangbiao-';
-const CACHE_NAME = CACHE_PREFIX + 'v12';
+const CACHE_NAME = CACHE_PREFIX + 'v13';
 const NETWORK_POLICY = 'ledger-static-only-v3';
-const PRECACHE_URLS = ['./', './index.html', './cloud.js', './manifest.json', './icon-192.png', './icon-512.png'];
+const PRECACHE_URLS = ['./', './index.html', './cloud.js', './vendor/pinyin-pro-3.29.5.js', './manifest.json', './icon-192.png', './icon-512.png'];
 
 self.addEventListener('install', event => {
   event.waitUntil(caches.open(CACHE_NAME).then(cache => cache.addAll(

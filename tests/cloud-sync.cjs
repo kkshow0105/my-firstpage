@@ -522,7 +522,7 @@ async function syncTests() {
   await check('real browser cache contains no login or ledger responses after auth and commits', async () => {
     const urls = await tab.eval(`caches.keys().then(async names=>(await Promise.all(names.map(async name=>
       (await caches.open(name)).keys()))).flat().map(request=>new URL(request.url).pathname).sort())`);
-    assert.deepEqual(urls, ['/', '/cloud.js', '/icon-192.png', '/icon-512.png', '/index.html', '/manifest.json']);
+    assert.deepEqual(urls, ['/', '/cloud.js', '/icon-192.png', '/icon-512.png', '/index.html', '/manifest.json', '/vendor/pinyin-pro-3.29.5.js']);
   });
   await check('same-profile second tab cannot race the active writer', async () => {
     const otherTab = await browser.tab(site);
@@ -613,6 +613,7 @@ async function main() {
     await migrationTests();
     await retirementTests();
     await orderRevealTests();
+    await customerIndexTests();
   }
   await check('no browser JavaScript exceptions', () => assert.deepEqual(exceptions, []));
 }
@@ -963,6 +964,163 @@ async function orderRevealTests() {
     assert.equal(await tab.eval('reveals[1].id'),mobileId);
     assert.equal(await tab.eval('reveals[1].closed && reveals[1].stored'),true);
     await tab.wait(centered);
+  });
+  await browser.stop();
+}
+
+async function customerIndexTests() {
+  let offline=false;
+  const site=await serve((req,res)=>staticResponse(req,res,{offline}));
+  const browser=await startBrowser('customer-index'),tab=await browser.tab(site,asIPhone);
+  await tab.wait('cloudSync.workerReady');
+  const names=['张敏','张明','曾宁','赵然','zora','Alice','Émilie','7号客户','!符号','解玲','仇远','区平',
+    '單嘉','萬俟昕','长孙星','尉遲宁','李悦','刘雯','ZZZZ'];
+  const trips=await tab.eval(`(()=>{
+    const book=cloneData(tripBook),makeOrder=(customer,i)=>({id:'index-order-'+i,customer,product:i===0?'仅此商品':'常规商品',
+      qty:1,sellingPrice:5,purchased:0,isPaid:i===0,location:'',note:''});
+    book.trips[0].orders=${JSON.stringify(names)}.map(makeOrder);
+    const second=emptyTrip('第二个行程','index-second'),empty=emptyTrip('空行程','index-empty');
+    second.orders=[makeOrder('Mason',100)];book.trips.push(second,empty);
+    localStorage.setItem(BOOK_KEY,JSON.stringify(book));return book.trips.map(trip=>trip.id);
+  })()`);
+  await tab.reload();
+  const raw=await tab.eval('localStorage.getItem(BOOK_KEY)');
+  await tab.eval(`window.indexReveals=[];const originalScroll=window.scrollTo.bind(window);
+    window.scrollTo=options=>{
+      const card=document.querySelector('.customer-index-target'),row=document.querySelector('.order-just-added');
+      indexReveals.push({customer:card?.dataset.customer,order:row?.dataset.id,options});originalScroll(options);
+    };`);
+  const enabled=(letters)=>tab.eval(`Array.from(document.querySelectorAll('#customerIndex button:not(:disabled)'),b=>b.textContent).join('')===${JSON.stringify(letters)}`);
+  const closed="!document.getElementById('searchWrap').classList.contains('open') && document.getElementById('customerIndex').hidden";
+  const select=letter=>tab.eval(`document.querySelector('#customerIndex [data-initial="'+${JSON.stringify(letter)}+'"]').click()`);
+  const expectedFirst=group=>tab.eval(`Array.from(document.querySelectorAll('#customer-table-container .card'),card=>card.dataset.customer).find(name=>${JSON.stringify(group)}.includes(name))`);
+  const matches={张敏:'Z',李悦:'L',曾宁:'Z',解玲:'X',仇远:'Q',区平:'O',單嘉:'S',萬俟昕:'M',长孙星:'Z',尉遲宁:'Y',
+    Alice:'A',zora:'Z',Émilie:'E','7号客户':'#','〇七':'#','!符号':'#','★张三':'#'};
+
+  await check('offline pinyin surname readings, English initials, numbers and symbols classify predictably',async()=>{
+    const actual=await tab.eval(`Object.fromEntries(${JSON.stringify(Object.keys(matches))}.map(name=>[name,customerInitial(name)]))`);
+    assert.deepEqual(actual,matches);
+  });
+  await check('magnifier exposes A–Z and disabled letters without focusing the input',async()=>{
+    assert.equal(await tab.eval(closed),true);
+    await tab.click('#btnSearch');
+    assert.equal(await tab.eval("document.activeElement!==document.getElementById('searchInput')"),true);
+    assert.equal(await tab.eval("document.getElementById('btnSearch').getAttribute('aria-expanded')"),'true');
+    assert.equal(await tab.eval("Array.from(document.querySelectorAll('#customerIndex button'),b=>b.textContent).join('')"),'ABCDEFGHIJKLMNOPQRSTUVWXYZ#');
+    await select('F');
+    assert.equal(await tab.eval("document.querySelector('#customerIndex [data-initial=F]').disabled && indexReveals.length===0"),true);
+    assert.equal(await tab.eval(closed),false);
+  });
+  await check('initials jump to the first matching card in rendered order, leaving the book byte-for-byte unchanged',async()=>{
+    for(const [letter,group] of [['Z',['张敏','张明','曾宁','赵然','长孙星','zora','ZZZZ']],['A',['Alice']],['#',['7号客户','!符号']]]){
+      const first=await expectedFirst(group),count=await tab.eval('indexReveals.length');
+      assert.ok(first);
+      if(await tab.eval(closed))await tab.eval('toggleSearch()');
+      await select(letter);await tab.wait('indexReveals.length==='+String(count+1));
+      assert.equal(await tab.eval('indexReveals.at(-1).customer'),first);
+      assert.equal(await tab.eval(closed),true);
+    }
+    assert.equal(await tab.eval('localStorage.getItem(BOOK_KEY)'),raw);
+    assert.deepEqual(await tab.eval("Array.from(document.querySelectorAll('#customer-table-container .card'),c=>c.dataset.customer)"),
+      await tab.eval(`${JSON.stringify(names)}.sort((a,b)=>a.localeCompare(b,'zh'))`));
+  });
+  await check('390px keyboard simulation closes the entire search drawer, restores filters and centers after resize',async()=>{
+    await tab.send('Emulation.setDeviceMetricsOverride',{width:390,height:844,deviceScaleFactor:1,mobile:true});
+    await tab.eval(`window.nativeIndexViewport=window.visualViewport;
+      const indexKeyboard=new EventTarget();Object.assign(indexKeyboard,{height:440,scale:1,offsetTop:0});
+      Object.defineProperty(window,'visualViewport',{configurable:true,value:indexKeyboard});
+      toggleSearch();const input=document.getElementById('searchInput');input.focus();input.value='仅此商品';input.dispatchEvent(new Event('input'));updateSearchViewport();`);
+    assert.ok(await tab.eval("document.querySelectorAll('#tab-customers .card[style*="+'"display: none"'+"]').length>0"));
+    const before=await tab.eval('indexReveals.length'),name=await expectedFirst(['李悦','刘雯']);
+    await select('L');
+    assert.equal(await tab.eval(closed),true);
+    assert.equal(await tab.eval("document.activeElement.id!=='searchInput' && !document.getElementById('searchInput').value"),true);
+    assert.equal(await tab.eval("Array.from(document.querySelectorAll('#tab-customers .card, #tab-customers tr'),el=>el.style.display).every(value=>value==='')"),true);
+    await delay(150);
+    assert.equal(await tab.eval('indexReveals.length'),before);
+    await tab.eval("indexKeyboard.height=844;indexKeyboard.dispatchEvent(new Event('resize'))");
+    await tab.wait('indexReveals.length==='+String(before+1));
+    assert.equal(await tab.eval('indexReveals.at(-1).customer'),name);
+    assert.equal(await tab.eval('indexReveals.at(-1).options.behavior'),'smooth');
+    await tab.wait(`(()=>{const card=document.querySelector('.customer-index-target');if(!card)return false;
+      const rect=card.getBoundingClientRect(),top=document.querySelector('.top-bar').getBoundingClientRect().bottom,bottom=document.querySelector('.bottom-bar').getBoundingClientRect().top;
+      return rect.top>=top&&rect.bottom<=bottom&&Math.abs((rect.top+rect.bottom-top-bottom)/2)<28;})()`);
+    assert.equal(await tab.eval("getComputedStyle(document.querySelector('.customer-index-target')).animationName"),'none');
+    await tab.wait("!document.querySelector('.customer-index-target')",2800);
+    await tab.eval("void Object.defineProperty(window,'visualViewport',{configurable:true,value:nativeIndexViewport})");
+  });
+  await check('320px and 390px portrait fit all initial buttons with usable touch targets',async()=>{
+    for(const width of [320,390]){
+      await tab.send('Emulation.setDeviceMetricsOverride',{width,height:700,deviceScaleFactor:1,mobile:true});
+      if(await tab.eval(closed))await tab.eval('toggleSearch()');
+      const sizes=await tab.eval(`Array.from(document.querySelectorAll('#customerIndex button'),b=>{const r=b.getBoundingClientRect();return[r.left,r.right,r.width,r.height];})`);
+      assert.equal(sizes.length,27);
+      assert.ok(sizes.every(([left,right,w,h])=>left>=0&&right<=width&&w>=40&&h>=44),JSON.stringify(sizes));
+      assert.equal(await tab.eval("document.getElementById('searchWrap').scrollWidth===document.getElementById('searchWrap').clientWidth"),true);
+      await tab.eval('clearSearch()');
+    }
+  });
+  await check('trip changes, order addition, deletion and a customer name update refresh the index',async()=>{
+    await tab.eval("switchTrip('index-second');toggleSearch()");
+    assert.equal(await enabled('M'),true);
+    await tab.eval("switchTrip('index-empty');toggleSearch()");
+    assert.equal(await tab.eval("document.getElementById('customerIndex').hidden"),true);
+    await tab.eval("switchTrip('index-second');toggleSearch()");
+    const id=await addOrder(tab,'Bob');
+    assert.equal(await enabled('BM'),true);
+    await tab.eval(`window.confirm=()=>true;deleteOrder(${JSON.stringify(id)})`);
+    assert.equal(await enabled('M'),true);
+    await tab.eval(`const updated=cloneData(tripBook);updated.trips.find(t=>t.id===activeTripId).orders[0].customer='Nancy';
+      commitTripBook(updated);restoreDataState(currentTrip());renderAll()`);
+    assert.equal(await enabled('N'),true);
+    await tab.eval(`switchTrip(${JSON.stringify(trips[0])})`);
+    assert.equal(await tab.eval(closed),true);
+  });
+  await check('product tab keeps keyword search and never exposes the customer alphabet',async()=>{
+    await tab.eval("switchTab('products');toggleSearch();document.getElementById('searchInput').value='仅此商品';doSearch()");
+    assert.equal(await tab.eval("document.getElementById('customerIndex').hidden && document.activeElement.id!=='searchInput'"),true);
+    assert.deepEqual(await tab.eval("Array.from(document.querySelectorAll('#tab-products tbody tr')).filter(r=>r.style.display!=='none').map(r=>r.cells[0].textContent.trim())"),['仅此商品']);
+    await tab.eval("switchTab('customers');toggleSearch();document.getElementById('searchInput').value='仅此商品';doSearch()");
+    assert.equal(await tab.eval("Array.from(document.querySelectorAll('#tab-customers .card')).filter(c=>c.style.display!=='none').length"),1);
+    assert.equal(await tab.eval("document.querySelector('#tab-customers .card:not([style*=\"display: none\"])').dataset.customer"),'张敏');
+    await tab.eval('clearSearch()');
+  });
+  await check('customer index honors the reduced-motion preference',async()=>{
+    const before=await tab.eval('indexReveals.length');
+    await tab.send('Emulation.setEmulatedMedia',{features:[{name:'prefers-reduced-motion',value:'reduce'}]});
+    await tab.eval('toggleSearch()');await select('L');
+    await tab.wait('indexReveals.length==='+String(before+1));
+    assert.equal(await tab.eval('indexReveals.at(-1).options.behavior'),'instant');
+    await tab.send('Emulation.setEmulatedMedia',{features:[]});
+  });
+  await check('a later order reveal or a trip switch cancels a pending initial reveal',async()=>{
+    await tab.send('Emulation.setDeviceMetricsOverride',{width:390,height:844,deviceScaleFactor:1,mobile:true});
+    const before=await tab.eval('indexReveals.length');
+    await tab.eval("indexKeyboard.height=440;Object.defineProperty(window,'visualViewport',{configurable:true,value:indexKeyboard});toggleSearch()");
+    await select('Z');
+    const id=await addOrder(tab,'Alice','QuickSave');
+    await tab.eval("indexKeyboard.height=844;indexKeyboard.dispatchEvent(new Event('resize'))");
+    await tab.wait('indexReveals.length==='+String(before+1));
+    assert.equal(await tab.eval('indexReveals.at(-1).order'),id);
+    assert.equal(await tab.eval('indexReveals.at(-1).customer'),undefined);
+    await tab.eval("toggleSearch();indexKeyboard.height=440");await select('L');
+    await tab.eval("switchTrip('index-second');indexKeyboard.height=844;indexKeyboard.dispatchEvent(new Event('resize'))");
+    await delay(280);
+    assert.equal(await tab.eval('indexReveals.length'),before+1);
+    await tab.eval(`switchTrip(${JSON.stringify(trips[0])});indexKeyboard.height=440;toggleSearch()`);await select('L');
+    await tab.eval("toggleSearch();indexKeyboard.height=844;indexKeyboard.dispatchEvent(new Event('resize'))");
+    await delay(280);
+    assert.equal(await tab.eval('indexReveals.length'),before+1);
+    assert.equal(await tab.eval(closed),false);
+    await tab.eval("clearSearch();void Object.defineProperty(window,'visualViewport',{configurable:true,value:nativeIndexViewport})");
+  });
+  await check('new initial selection still works after reloading with the server offline',async()=>{
+    offline=true;
+    await tab.reload();
+    await tab.eval('toggleSearch()');
+    assert.equal(await tab.eval("!document.getElementById('customerIndex').hidden && customerInitial('单宁')==='S'"),true);
+    await select('S');
+    await tab.wait("document.querySelector('.customer-index-target')?.dataset.customer==='單嘉'");
   });
   await browser.stop();
 }
