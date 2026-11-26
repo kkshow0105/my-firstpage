@@ -676,7 +676,7 @@ tr.sys-stock td{color:#856404}
         <div class="dropdown-item" onclick="openImportModal()"><span class="d-icon">📤</span> 导入备份数据</div>
         <div class="dropdown-item" onclick="exportRestoreSafety()"><span class="d-icon">🛟</span> 导出恢复前安全副本</div>
         <div class="dropdown-item" onclick="clearAllData()" style="color:var(--red)"><span class="d-icon">🗑️</span> 清空当前行程数据</div>
-        <div class="dropdown-version">v3.0.0</div>
+        <div class="dropdown-version">v3.0.1</div>
       </div>
     </div>
   </div>
@@ -967,10 +967,16 @@ tr.sys-stock td{color:#856404}
       <div class="btn-row"><button class="btn btn-primary" id="cloud-login-submit" type="submit" disabled>登录</button></div>
     </form>
     <div id="cloud-commands" hidden>
+      <button class="btn btn-primary" id="cloud-import-local" onclick="reviewLocalMigration()" hidden>迁移本机旧账本</button>
+      <button class="btn btn-ghost" id="cloud-audit" onclick="showCloudAudit()" hidden>核对云端账本</button>
       <button class="btn btn-ghost" id="cloud-retry" onclick="cloudSync.schedule()">重试同步</button>
       <button class="btn btn-ghost" id="cloud-show-remote" onclick="showCloudPreview()" hidden>查看云端最新</button>
       <button class="btn btn-primary" id="cloud-export" onclick="exportCloudPending()" hidden>导出本地待同步数据</button>
       <button class="btn btn-ghost" id="cloud-logout" onclick="leaveCloud()">退出登录</button>
+    </div>
+    <div id="cloud-migration" hidden>
+      <label><input id="cloud-migration-confirmed" type="checkbox" onchange="renderCloudStatus()"> 我确认这是原 iPhone 主屏幕账本，两份完整备份已保存。</label>
+      <div class="btn-row"><button class="btn btn-ghost" onclick="clearCloudPreview();renderCloudStatus()">取消迁移</button><button class="btn btn-primary" id="cloud-migration-submit" onclick="confirmLocalMigration()" disabled>确认上传全部行程</button></div>
     </div>
     <pre id="cloud-preview" hidden></pre>
     <div class="btn-row"><button class="btn btn-ghost" onclick="closeCloudPanel()">关闭</button></div>
@@ -990,6 +996,7 @@ const TRIP_STATUSES={'planned':'待出发','active':'进行中','archived':'已�
 let tripBook=null,activeTripId=null,tripEpoch=0,pendingImport=null;
 let importReadToken=0,lastLocalCommit=null;
 let cloudSync=null,cloudBookOwner=null,localProtection=null,cloudLoginBusy=false,cloudPreviewToken=0;
+let migrationReview=null,migrationBusy=false;
 
 function newTripId(){
   return globalThis.crypto?.randomUUID?.()||'trip-'+Date.now().toString(36)+'-'+Array.from(crypto.getRandomValues(new Uint32Array(4)),n=>n.toString(16)).join('-');
@@ -1611,6 +1618,9 @@ function canRestoreCloud(){
 }
 function clearCloudPreview(){
   cloudPreviewToken++;
+  migrationReview=null;
+  document.getElementById('cloud-migration-confirmed').checked=false;
+  document.getElementById('cloud-migration').hidden=true;
   const preview=document.getElementById('cloud-preview');preview.hidden=true;preview.textContent='';
 }
 function showAccountBook(book){
@@ -1652,14 +1662,18 @@ function renderCloudStatus(){
   const context=cloudSync.context,record=context?.record,ready=cloudSync.workerReady,online=navigator.onLine;
   let status='本地模式',detail=cloudSync.message;
   if(context){
-    if(record?.conflict){status='同步冲突';detail='此设备和云端都有改动。自动同步已暂停，可查看云端最新账本并导出本机修改。';}
+    if(record?.conflict){status='同步冲突';detail=record.initialImport?.status==='different'
+      ?'首次迁移后的云端账本与原始快照不一致。已停止写入，请保留两份数据并核对。'
+      :'此设备和云端都有改动。自动同步已暂停，可查看云端最新账本并导出本机修改。';}
     else if(!ready){status='待同步';detail='等待安全的 PWA 更新。新版本接管后才连接云端。';}
     else if(context.blocked||(context.error&&online)){status='同步失败';detail=context.error;}
     else if(!online){status='离线';detail=record?'修改先保存在此设备，联网后自动同步。':'首次打开此账号需要联网读取云端账本。';}
     else if(context.busy){status='正在同步';detail='正在与云端核对账本。';}
-    else if(cloudSync.pending()||!record){status='待同步';detail='等待与云端同步。';}
+    else if(cloudSync.pending()||!record||!context.confirmed){status='待同步';detail='等待与云端同步。';}
     else {status='已同步';detail='云端版本 '+record.base+'，此设备暂无待提交修改。';}
     if(ready&&!context.writer&&!context.blocked)detail+=' 另一个窗口可能正在写入，本窗口暂时只读。';
+    if(record?.initialImport?.status==='checking'&&!record.conflict)detail+=' 首次上传须等云端逐项核对后才完成。';
+    if(record?.initialImport?.status==='verified')detail+=' 首次迁移核对通过，可用「核对云端账本」查看当前版本和核对码。';
     detail=context.session.email+'\n'+detail;
   }else if(!ready){detail=detail||'请从已更新的 PWA 打开，待新版本接管后登录。';}
   else if(!online){detail=detail||'请联网后登录。';}
@@ -1669,6 +1683,13 @@ function renderCloudStatus(){
   document.getElementById('cloud-login').hidden=!!context;
   document.getElementById('cloud-login-submit').disabled=!ready||!online||cloudLoginBusy;
   document.getElementById('cloud-commands').hidden=!context;
+  document.getElementById('cloud-legacy').textContent=record?.initialImport?.status==='verified'
+    ?'本机旧账本仍独立保留，退出云端后可查看。'
+    :'此设备原有的本地账本尚未迁移，退出登录后可继续使用。';
+  document.getElementById('cloud-import-local').hidden=!isIPhonePwa()||!cloudSync.canImportLocal||!!migrationReview;
+  document.getElementById('cloud-audit').hidden=!context?.session.initialImport||!!migrationReview;
+  document.getElementById('cloud-audit').disabled=!ready||!online;
+  document.getElementById('cloud-migration-submit').disabled=migrationBusy||!cloudSync.canImportLocal||!document.getElementById('cloud-migration-confirmed').checked;
   document.getElementById('cloud-retry').hidden=!context?.error||context.blocked||!context.writer||!ready||!online;
   document.getElementById('cloud-show-remote').hidden=!record?.conflict;
   document.getElementById('cloud-show-remote').disabled=!ready||!online;
@@ -1681,6 +1702,66 @@ function openCloudPanel(){
 function closeCloudPanel(){
   document.getElementById('modal-cloud').classList.remove('show');
   document.getElementById('cloud-password').value='';clearCloudPreview();
+}
+function isIPhonePwa(){
+  return /iPhone|iPod/.test(navigator.userAgent)&&(navigator.standalone===true||matchMedia('(display-mode: standalone)').matches);
+}
+function ledgerAuditText(trips){
+  const amount=value=>'¥'+value.toFixed(2);
+  return [trips.length+' 个行程',...trips.map(trip=>{
+    const sum=stateSummary(trip),paid=trip.orders.filter(order=>order.isPaid).length;
+    return [trip.name+' · '+TRIP_STATUSES[trip.status]+'\nID '+trip.id,
+      sum.orders+' 笔订单（已收 '+paid+'，未收 '+(sum.orders-paid)+'） · '+sum.purchaseLogs+' 笔采购',
+      '应收 '+amount(sum.receivable)+' · 未收 '+amount(sum.unpaid)+' · 采购成本 '+amount(sum.cost),
+      Object.keys(trip.productMeta).length+' 条商品资料',
+      ...sum.inventory.map(item=>item.product+' · 需求 '+item.demand+' · 已采购 '+item.allocated+' · 剩余库存 '+(item.bought-item.allocated))].join('\n');
+  })].join('\n\n');
+}
+async function reviewLocalMigration(){
+  if(!isIPhonePwa()||!cloudSync.canImportLocal)return;
+  clearCloudPreview();
+  const context=cloudSync.context,token=cloudPreviewToken,preview=document.getElementById('cloud-preview');
+  preview.hidden=false;
+  try{
+    const raw=localStorage.getItem(BOOK_KEY);
+    if(!raw)throw Error('此主屏幕应用找不到原本地账本，已停止迁移。');
+    const book=validateTripBook(JSON.parse(raw));
+    if(!book.trips.some(trip=>trip.orders.length||trip.purchaseLogs.length||Object.keys(trip.productMeta).length))
+      throw Error('此设备的本地账本没有业务记录，已停止迁移。');
+    const digest=await ledgerDigest(book.trips);
+    if(token!==cloudPreviewToken||!cloudSync.isCurrent(context)||!cloudSync.canImportLocal)return;
+    migrationReview={context,raw,book};
+    preview.textContent='来源：这部 iPhone 的原本地账本\n目标：'+context.session.email+'\n核对码：'+digest+'\n\n'+ledgerAuditText(book.trips);
+    document.getElementById('cloud-migration').hidden=false;
+    renderCloudStatus();
+  }catch(error){
+    if(token===cloudPreviewToken)preview.textContent=error instanceof SyntaxError?'无法读取原本地账本，已停止迁移。':error.message;
+  }
+}
+async function confirmLocalMigration(){
+  const review=migrationReview;
+  if(!review||migrationBusy||!isIPhonePwa()||!document.getElementById('cloud-migration-confirmed').checked)return;
+  migrationBusy=true;renderCloudStatus();
+  try{
+    if(!cloudSync.isCurrent(review.context)||localStorage.getItem(BOOK_KEY)!==review.raw)
+      throw Error('原本地账本或账号已变化，请重新核对。');
+    await cloudSync.stageLocalImport(review.book,()=>isIPhonePwa()&&migrationReview===review&&localStorage.getItem(BOOK_KEY)===review.raw);
+    toast('首次上传已排队。云端核对完成前，请等待同步。');
+  }catch(error){if(migrationReview===review){clearCloudPreview();const p=document.getElementById('cloud-preview');p.hidden=false;p.textContent=error instanceof LedgerApiError?'无法确认云端状态，已停止迁移。请检查网络后重试。':error.message;}}
+  finally{migrationBusy=false;renderCloudStatus();}
+}
+async function showCloudAudit(){
+  clearCloudPreview();
+  const context=cloudSync.context,token=cloudPreviewToken,preview=document.getElementById('cloud-preview');
+  if(!context?.session.initialImport)return;
+  preview.hidden=false;preview.textContent='正在从云端重新读取全部行程…';
+  try{
+    const remote=await cloudSync.preview(),digest=await ledgerDigest(remote.trips);
+    if(token!==cloudPreviewToken||!cloudSync.isCurrent(context))return;
+    const receipt=context.record?.initialImport;
+    const matched=receipt?.status==='verified'&&receipt.digest===digest;
+    preview.textContent='云端版本 '+remote.version+'\n核对码：'+digest+(matched?'\n与本机首次上传的账本一致。':'')+'\n\n'+ledgerAuditText(remote.trips);
+  }catch{if(token===cloudPreviewToken&&cloudSync.isCurrent(context))preview.textContent='无法重新读取云端账本，请检查网络。';}
 }
 async function submitCloudLogin(event){
   event.preventDefault();if(cloudLoginBusy||!cloudSync)return;

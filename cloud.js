@@ -4,10 +4,23 @@ const LEDGER_PUBLISHABLE_KEY = 'sb_publishable__ZoXRhw5WbM1NijGbojSYw_8m8LEDaC';
 const LEDGER_SESSION = 'dual_table_cloud_session_v1';
 const LEDGER_ACCOUNT = 'dual_table_cloud_account_v1:';
 const LEDGER_SELECTION = 'dual_table_cloud_trip_v1:';
-const LEDGER_WORKER_POLICY = 'ledger-static-only-v1';
+const LEDGER_WORKER_POLICY = 'ledger-static-only-v2';
 const ledgerUuid = value => typeof value === 'string' && /^[a-f0-9]{8}(?:-[a-f0-9]{4}){3}-[a-f0-9]{12}$/i.test(value);
 const ledgerVersion = value => Number.isSafeInteger(value) && value >= 0;
 const ledgerTripId = value => typeof value === 'string' && /^[a-zA-Z0-9_-]{1,100}$/.test(value);
+
+async function ledgerDigest(trips) {
+  // PostgreSQL JSONB changes object key order. Array order and all values are significant.
+  function canonical(value) {
+    if (Array.isArray(value)) return '[' + value.map(canonical).join(',') + ']';
+    if (value !== null && typeof value === 'object') {
+      return '{' + Object.keys(value).sort().map(key => JSON.stringify(key) + ':' + canonical(value[key])).join(',') + '}';
+    }
+    return JSON.stringify(value);
+  }
+  const digest = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(canonical(trips)));
+  return [...new Uint8Array(digest)].map(byte => byte.toString(16).padStart(2, '0')).join('');
+}
 
 class LedgerApiError extends Error {
   constructor(status, code) {
@@ -44,7 +57,10 @@ class CloudLedgerSync {
       }
     });
     window.addEventListener('online', () => { this.checkWorker(); this.schedule(); this.ui.onStatus(); });
-    window.addEventListener('offline', () => this.ui.onStatus());
+    window.addEventListener('offline', () => {
+      if (this.context) this.context.confirmed = false;
+      this.ui.onStatus();
+    });
     window.addEventListener('focus', () => { this.adoptSession(); this.checkWorker(); this.schedule(); });
     window.addEventListener('pageshow', event => {
       if (event.persisted) { this.adoptSession(); this.checkWorker(); this.schedule(); }
@@ -118,7 +134,7 @@ class CloudLedgerSync {
       clearTimeout(previous.timer);
     }
     const context = session && { session, abort: new AbortController(), record: null, raw: null,
-      writer: false, waitingWriter: false, busy: false, blocked: false, error: '', retry: 0, timer: null };
+      writer: false, waitingWriter: false, busy: false, blocked: false, confirmed: false, error: '', retry: 0, timer: null };
     this.context = context;
     this.ui.onAccount(context);
     if (context && this.workerReady) this.requestWriter(context);
@@ -155,6 +171,13 @@ class CloudLedgerSync {
             !Array.isArray(record.deletedIds) || !record.deletedIds.every(ledgerTripId) ||
             !Array.isArray(record.restoreIds) || !record.restoreIds.every(ledgerTripId)) throw Error();
         record.book = this.ui.validateBook(record.book);
+        if (record.initialImport !== undefined) {
+          const receipt = record.initialImport;
+          if (!/^[a-f0-9]{64}$/.test(receipt?.digest) || !['checking','verified','different'].includes(receipt.status) ||
+              (receipt.status === 'checking' && (record.dirty || ![0, 1].includes(record.base) ||
+              (record.base === 0) !== (record.flight !== null))) ||
+              (receipt.status === 'different' && !record.conflict)) throw Error();
+        }
         if (record.flight !== null) {
           const flight = JSON.parse(record.flight);
           if (!ledgerUuid(flight.p_commit_id) || flight.p_base_version !== record.base ||
@@ -211,7 +234,8 @@ class CloudLedgerSync {
 
   get canWrite() {
     const c = this.context;
-    return !!c && this.isCurrent(c) && this.workerReady && c.writer && !!c.record && !c.blocked;
+    return !!c && this.isCurrent(c) && this.workerReady && c.writer && !!c.record && !c.blocked &&
+      !['checking','different'].includes(c.record.initialImport?.status);
   }
 
   get canRestore() {
@@ -219,7 +243,40 @@ class CloudLedgerSync {
     return this.canWrite && navigator.onLine && !c.busy && !this.pending(c) && !c.record.conflict && !c.error;
   }
 
-  pending(context = this.context) { return !!(context?.record?.dirty || context?.record?.flight); }
+  pending(context = this.context) {
+    const record = context?.record;
+    return !!(record?.dirty || record?.flight || record?.initialImport?.status === 'checking');
+  }
+
+  get canImportLocal() {
+    const c = this.context;
+    return this.canRestore && c.confirmed && c.session.initialImport && c.record.base === 0 &&
+      !c.record.initialImport && c.record.deletedIds.length === 0;
+  }
+
+  async stageLocalImport(source, stillSameSource) {
+    const c = this.context;
+    if (!this.canImportLocal) throw Error('当前账号未就绪或云端已有数据，已停止迁移。');
+    const before = c.record;
+    const book = this.ui.validateBook(source);
+    const digest = await ledgerDigest(book.trips);
+    const token = await this.token(c);
+    const account = await this.api('/auth/v1/user', { method:'GET', token, signal:c.abort.signal });
+    if (account?.id !== c.session.userId || account.app_metadata?.ledger_initial_import !== true)
+      throw Error('当前账号未开通首次迁移权限。');
+    const remote = await this.remote(c);
+    if (remote.version !== 0 || remote.trips.length || remote.deletedTripIds.length)
+      throw Error('云端已有数据，已停止迁移。请先核对当前账号。');
+    if (!this.isCurrent(c) || before !== c.record || !this.canImportLocal || !stillSameSource())
+      throw Error('账号、网络或本地账本已变化，请重新核对后确认。');
+    const flight = JSON.stringify({ p_commit_id:crypto.randomUUID(), p_base_version:0,
+      p_trips:book.trips, p_restore_trip_ids:[] });
+    // The frozen request and source copy are persisted together before any write RPC.
+    this.putRecord(c, { ...before, book, flight, initialImport:{ status:'checking', digest } });
+    this.ui.onBook(book);
+    this.ui.onStatus();
+    this.schedule();
+  }
 
   saveBook(book, safetyBackup = null) {
     const c = this.context;
@@ -233,7 +290,7 @@ class CloudLedgerSync {
     this.ui.onStatus();
   }
 
-  async api(path, { token, body, signal } = {}) {
+  async api(path, { token, body, signal, method = 'POST' } = {}) {
     if (!this.workerReady) throw Error('等待安全的 PWA 更新');
     const abort = new AbortController();
     const cancel = () => abort.abort();
@@ -242,7 +299,7 @@ class CloudLedgerSync {
     const timer = setTimeout(cancel, 15000);
     try {
       const response = await fetch(LEDGER_API + path, {
-        method: 'POST', cache: 'no-store', credentials: 'omit', redirect: 'error', signal: abort.signal,
+        method, cache: 'no-store', credentials: 'omit', redirect: 'error', signal: abort.signal,
         headers: { apikey: LEDGER_PUBLISHABLE_KEY, ...(token ? { Authorization: 'Bearer ' + token } : {}),
           ...(body === undefined ? {} : { 'Content-Type': 'application/json' }) },
         body: typeof body === 'string' ? body : body === undefined ? undefined : JSON.stringify(body)
@@ -262,7 +319,8 @@ class CloudLedgerSync {
         typeof data.access_token !== 'string' || typeof data.refresh_token !== 'string' ||
         !Number.isFinite(data.expires_in) || data.expires_in <= 0) throw Error('登录响应不完整');
     return { userId: data.user.id, email: data.user.email, accessToken: data.access_token,
-      refreshToken: data.refresh_token, expiresAt: Date.now() + data.expires_in * 1000, loginId };
+      refreshToken: data.refresh_token, expiresAt: Date.now() + data.expires_in * 1000, loginId,
+      initialImport: data.user.app_metadata?.ledger_initial_import === true };
   }
 
   async signIn(email, password) {
@@ -376,7 +434,7 @@ class CloudLedgerSync {
     try {
       while (this.isCurrent(c) && this.workerReady && navigator.onLine) {
         const current = c.record;
-        if (this.pending(c)) {
+        if (current?.dirty || current?.flight) {
           if (!current.flight) {
             const flight = JSON.stringify({ p_commit_id: crypto.randomUUID(), p_base_version: current.base,
               p_trips: current.book.trips, p_restore_trip_ids: current.restoreIds });
@@ -401,6 +459,15 @@ class CloudLedgerSync {
         const remote = await this.remote(c);
         if (!this.isCurrent(c)) return;
         const saved = c.record;
+        if (saved?.initialImport?.status === 'checking') {
+          const matches = remote.version === 1 && !remote.deletedTripIds.length &&
+            await ledgerDigest(remote.trips) === saved.initialImport.digest;
+          if (!this.isCurrent(c) || c.record !== saved) return;
+          this.putRecord(c, { ...saved, conflict:!matches,
+            initialImport:{ ...saved.initialImport, status:matches?'verified':'different' } });
+          c.confirmed = matches;
+          return;
+        }
         if (saved && remote.version < saved.base) throw Error('云端版本低于本机基准');
         if (this.pending(c)) {
           if (saved.base !== remote.version) {
@@ -413,11 +480,12 @@ class CloudLedgerSync {
           const book = this.ui.bookFromRemote(remote.trips, saved?.book);
           this.putRecord(c, { format: 1, userId: c.session.userId, book, base: remote.version,
             dirty: false, flight: null, conflict: false, restoreIds: [], deletedIds: remote.deletedTripIds,
-            safety: saved?.safety ?? null });
+            safety: saved?.safety ?? null, ...(saved?.initialImport ? { initialImport:saved.initialImport } : {}) });
           this.ui.onBook(book);
         } else if (JSON.stringify(saved.deletedIds) !== JSON.stringify(remote.deletedTripIds)) {
           this.putRecord(c, { ...saved, deletedIds: remote.deletedTripIds });
         }
+        c.confirmed = true;
         c.retry = 0;
         return;
       }

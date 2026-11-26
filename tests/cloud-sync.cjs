@@ -172,7 +172,7 @@ const oldWorker = [
   "self.addEventListener('message',e=>{if(e.data?.type==='SKIP_WAITING')e.waitUntil(self.skipWaiting());});",
   "self.addEventListener('fetch',e=>{if(e.request.method==='GET')e.respondWith(caches.open(name).then(async c=>{const old=await c.match(e.request);if(old)return old;const newValue=await fetch(e.request);if(newValue.ok)await c.put(e.request,newValue.clone());return newValue;}));});"
 ].join('\n');
-const verifyWorker = '(async()=>{const c=navigator.serviceWorker.controller;if(!c)return false;return new Promise(resolve=>{const m=new MessageChannel();const t=setTimeout(()=>{m.port1.close();resolve(false)},350);m.port1.onmessage=e=>{clearTimeout(t);m.port1.close();resolve(e.data==="ledger-static-only-v1")};c.postMessage({type:"LEDGER_CHECK_NETWORK_POLICY"},[m.port2])})})()';
+const verifyWorker = '(async()=>{const c=navigator.serviceWorker.controller;if(!c)return false;return new Promise(resolve=>{const m=new MessageChannel();const t=setTimeout(()=>{m.port1.close();resolve(false)},350);m.port1.onmessage=e=>{clearTimeout(t);m.port1.close();resolve(e.data==="ledger-static-only-v2")};c.postMessage({type:"LEDGER_CHECK_NETWORK_POLICY"},[m.port2])})})()';
 const marker = 'dual_table_m5_worker_test_pending';
 
 async function workerTests() {
@@ -180,7 +180,8 @@ async function workerTests() {
   const priorFile = name => execFileSync('git', ['-c', 'safe.directory=' + root.replaceAll('\\', '/'), 'show', previous + ':' + name], { cwd: root, encoding: 'utf8' });
   let source = previous ? priorFile('sw.js') : oldWorker;
   let html = previous ? priorFile('index.html') : undefined;
-  if (previous) assert.match(source, /CACHE_PREFIX \+ 'v8'/, 'Previous release must use the v8 Worker');
+  const oldCache = previous ? 'shuangbiao-' + source.match(/CACHE_PREFIX \+ '(v\d+)'/)?.[1] : 'shuangbiao-v8';
+  const previousVersion = html?.match(/class="dropdown-version">([^<]+)/)?.[1];
   let offline = false;
   const api = await serve((_req, res) => {
     res.writeHead(200, { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' });
@@ -190,11 +191,11 @@ async function workerTests() {
   const browser = await startBrowser('worker');
   const tab = await browser.tab(site);
 
-  await check('old worker is distinguishable and can have previously cached a cross-origin response', async () => {
+  await check('old worker is distinguishable and the old cache policy is detected', async () => {
     await tab.wait('!!navigator.serviceWorker.controller');
     assert.equal(await tab.eval(verifyWorker), false);
     if (previous) {
-      assert.equal(await tab.eval("document.querySelector('.dropdown-version').textContent"), 'v2.0.2');
+      assert.equal(await tab.eval("document.querySelector('.dropdown-version').textContent"), previousVersion);
       assert.ok(await addOrder(tab, 'SyntheticBeforeUpdate'));
       await tab.eval("localStorage.setItem(ACTIVE_TRIP_KEY,activeTripId);localStorage.setItem(RESTORE_SAFETY_KEY,'{}');localStorage.setItem(V5_KEYS[0],'[]')");
     } else {
@@ -202,7 +203,7 @@ async function workerTests() {
       assert.match(await tab.eval("cloudSync.signIn('m5@example.com','test-password').catch(e=>e.message)"), /更新 PWA/);
     }
     assert.equal(await tab.eval("fetch("+JSON.stringify(api+'/old-response')+").then(r=>r.status)"), 200);
-    assert.equal(await tab.eval("(async()=>!!(await caches.match("+JSON.stringify(api+'/old-response')+")))()"), true);
+    assert.equal(await tab.eval("(async()=>!!(await caches.match("+JSON.stringify(api+'/old-response')+")))()"), oldCache === 'shuangbiao-v8');
     await tab.eval("localStorage.setItem("+JSON.stringify(marker)+",'keep');window.oldLedger="+localSnapshot);
   });
   await check('new worker waits, takes control only after update, and cleans old app cache', async () => {
@@ -225,12 +226,12 @@ async function workerTests() {
     await tab.wait('cloudSync.workerReady');
     assert.equal(await tab.eval(localSnapshot+"===sessionStorage.getItem('sw-test-original')"), true);
     if (previous) {
-      assert.equal(await tab.eval("document.querySelector('.dropdown-version').textContent"), 'v3.0.0');
+      assert.equal(await tab.eval("document.querySelector('.dropdown-version').textContent"), 'v3.0.1');
       assert.equal(await tab.eval("orders.length===1&&orders[0].customer==='SyntheticBeforeUpdate'"), true);
       assert.equal(await tab.eval('cloudSync.context===null'), true);
     }
     assert.equal(await tab.eval("localStorage.getItem("+JSON.stringify(marker)+")"), 'keep');
-    assert.equal(await tab.eval("caches.keys().then(k=>!k.includes('shuangbiao-v8'))"), true);
+    assert.equal(await tab.eval(`caches.keys().then(k=>!k.includes(${JSON.stringify(oldCache)}))`), true);
   });
   await check('cross-origin Auth, REST and RPC, and non-static same-origin reads do not enter cache', async () => {
     const urls = [api+'/auth/v1/user',api+'/rest/v1/ledger_orders',api+'/rest/v1/rpc/read_ledger',site+'/test-private/record'];
@@ -253,11 +254,11 @@ const localSnapshot = "JSON.stringify(Object.fromEntries([BOOK_KEY,ACTIVE_TRIP_K
 const synced = "document.getElementById('cloud-status').textContent==='已同步' && !!cloudSync.context?.record";
 const conflict = "document.getElementById('cloud-status').textContent==='同步冲突'";
 
-async function mockCloud() {
-  const users = [alice, bob];
+async function mockCloud({ migration = false } = {}) {
+  const users = [migration ? { ...alice, app_metadata:{ ledger_initial_import:true } } : alice, bob];
   const states = new Map(users.map(user => [user.id, { version: 0, trips: [], deletedTripIds: [], receipts: new Map() }]));
   const requests = [];
-  const controls = { pause: null, failNext: false, loseNext: false, refreshes: 0, offline: false };
+  const controls = { pause: null, failNext: false, loseNext: false, refreshes: 0, offline: false, changeRead: null };
   const origin = await serve(async (req, res) => {
     if (controls.offline) { req.socket.destroy(); return; }
     res.setHeader('Access-Control-Allow-Origin', '*');
@@ -282,8 +283,12 @@ async function mockCloud() {
     const user = users.find(u => req.headers.authorization === 'Bearer access-' + u.id);
     if (!user) return reply(401, { code: 'invalid_session' });
     const state = states.get(user.id);
+    if (req.url === '/auth/v1/user' && req.method === 'GET') return reply(200, user);
     if (req.url.startsWith('/auth/v1/logout?')) return reply(204);
-    if (req.url === '/rest/v1/rpc/read_ledger') return reply(200, { schemaVersion: 1, ...state });
+    if (req.url === '/rest/v1/rpc/read_ledger') {
+      const result = { schemaVersion: 1, ...state };
+      return reply(200, controls.changeRead ? controls.changeRead(result) : result);
+    }
     if (req.url !== '/rest/v1/rpc/commit_ledger' || req.method !== 'POST') return reply(404);
     requests.push({ userId: user.id, raw, ...body });
     if (controls.pause) await controls.pause;
@@ -310,8 +315,17 @@ async function mockCloud() {
 }
 
 async function login(tab, email, password = testPassword) {
+  await tab.send('Page.bringToFront');
+  await tab.wait("pwaRegistration?.active?.state==='activated'",25000);
+  if (!await tab.eval('!!navigator.serviceWorker.controller')) await tab.reload();
   await tab.eval('openCloudPanel()');
-  await tab.wait('cloudSync.workerReady && navigator.onLine', 25000);
+  try { await tab.wait('cloudSync.workerReady && navigator.onLine', 25000); }
+  catch (error) {
+    console.error(await tab.eval(`caches.keys().then(caches=>({caches,online:navigator.onLine,
+      controller:navigator.serviceWorker.controller?.state,registration:pwaRegistration?.active?.state,
+      ready:cloudSync.workerReady,locks:!!navigator.locks}))`));
+    throw error;
+  }
   await tab.eval(`openCloudPanel();document.getElementById('cloud-email').value=${JSON.stringify(email)};
     document.getElementById('cloud-password').value=${JSON.stringify(password)};document.getElementById('cloud-login').requestSubmit();`);
   await tab.wait('!cloudLoginBusy');
@@ -345,6 +359,7 @@ async function syncTests() {
   const cloudA = states.get(alice.id), cloudB = states.get(bob.id);
   let original, orderId;
   await check('unsigned local entry and historical keys are independent from cloud', async () => {
+    await tab.wait('cloudSync.workerReady',25000);
     assert.equal(await tab.eval("document.getElementById('cloud-status').textContent"), '本地模式');
     assert.ok(await addOrder(tab, 'LegacyLocal'));
     await tab.eval("localStorage.setItem(ACTIVE_TRIP_KEY,activeTripId);localStorage.setItem(RESTORE_SAFETY_KEY,'{}');localStorage.setItem(V5_KEYS[0],'[]')");
@@ -588,8 +603,146 @@ async function main() {
   else {
     await workerTests();
     await syncTests();
+    await migrationTests();
   }
   await check('no browser JavaScript exceptions', () => assert.deepEqual(exceptions, []));
+}
+
+async function asIPhone(tab) {
+  await tab.send('Emulation.setUserAgentOverride',{ userAgent:'Mozilla/5.0 (iPhone; CPU iPhone OS 18_0 like Mac OS X)' });
+  await tab.send('Page.addScriptToEvaluateOnNewDocument', { source:"Object.defineProperty(navigator,'standalone',{value:true})" });
+}
+
+async function seedMigration(tab) {
+  const data = JSON.parse(fs.readFileSync(path.join(root,'tests/fixtures/legacy-v6-backup.json'),'utf8'));
+  return tab.eval(`(()=>{const data=${JSON.stringify(data)};
+    const first=emptyTrip('同名模拟行程','migration-first'), second=emptyTrip('同名模拟行程','migration-second');
+    first.createdAt='2026-01-01T00:00:00.123456789Z';
+    Object.assign(first,{orders:data.orders,purchaseLogs:data.purchaseLogs,productMeta:{...data.productMeta,测试空价:{lastPrice:null},测试零价:{lastPrice:0}}});
+    second.status='archived';
+    localStorage.setItem(BOOK_KEY,JSON.stringify(validateTripBook({schemaVersion:1,revision:44,commitId:'migration-local',migration:{status:'complete'},trips:[first,second]})));
+    localStorage.setItem(ACTIVE_TRIP_KEY,first.id);localStorage.setItem(RESTORE_SAFETY_KEY,'{}');
+    return ${localSnapshot};})()`);
+}
+
+async function reviewMigration(tab) {
+  await tab.eval("openCloudPanel();document.getElementById('cloud-import-local').click()");
+  await tab.wait("!document.getElementById('cloud-migration').hidden");
+}
+
+async function approveMigration(tab) {
+  await tab.eval(`document.getElementById('cloud-migration-confirmed').click();
+    document.getElementById('cloud-migration-submit').click();document.getElementById('cloud-migration-submit').click()`);
+}
+
+async function migrationTests() {
+  const browser = await startBrowser('migration');
+  async function environment() {
+    const cloud = await mockCloud({ migration:true });
+    const site = await serve((req,res)=>staticResponse(req,res,{cloudOrigin:cloud.origin}));
+    const tab = await browser.tab(site, asIPhone);
+    await tab.send('Page.bringToFront');
+    await tab.wait('cloudSync.workerReady',25000);
+    return { ...cloud, site, tab, cloudA:cloud.states.get(alice.id) };
+  }
+  const { tab, site, cloudA, requests, controls } = await environment();
+  let original, digest;
+  await check('blank iPhone, desktop and ordinary temporary account cannot stage legacy migration', async () => {
+    await login(tab, alice.email); await tab.wait(synced);
+    await tab.eval("openCloudPanel();document.getElementById('cloud-import-local').click()");
+    await tab.wait("document.getElementById('cloud-preview').textContent.includes('没有业务记录')");
+    assert.equal(requests.length,0);
+    await logout(tab);
+    original=await seedMigration(tab);
+    await tab.reload();
+    await login(tab,bob.email); await tab.wait(synced);
+    assert.equal(await tab.eval("document.getElementById('cloud-import-local').hidden"),true);
+    await logout(tab);
+    const desktopBrowser=await startBrowser('migration-desktop');
+    try {
+      const desktop=await desktopBrowser.tab(site);
+      await desktop.wait('cloudSync.workerReady',25000);
+      await seedMigration(desktop); await desktop.reload();
+      await login(desktop,alice.email); await desktop.wait(synced);
+      assert.equal(await desktop.eval("document.getElementById('cloud-import-local').hidden"),true);
+      await logout(desktop);
+    } finally { await desktopBrowser.stop(); }
+  });
+  await check('source summary is read-only until checkbox and explicit confirmation', async () => {
+    await login(tab,alice.email); await tab.wait(synced);
+    await reviewMigration(tab);
+    const summary=await tab.eval("document.getElementById('cloud-preview').textContent");
+    digest=summary.match(/[a-f0-9]{64}/)?.[0];
+    assert.ok(digest);
+    assert.match(summary,/同名模拟行程/);
+    assert.equal(await tab.eval("document.getElementById('cloud-migration-submit').disabled"),true);
+    assert.equal(requests.length,0);
+    assert.equal(await tab.eval(localSnapshot),original);
+  });
+  await check('first import retries byte-identically after a lost acknowledgment and verifies readback', async () => {
+    controls.loseNext=true;
+    await approveMigration(tab);
+    await tab.wait("cloudSync.context?.record?.initialImport?.status==='verified'",25000);
+    assert.equal(cloudA.version,1);
+    assert.equal(requests.length,2);
+    assert.equal(requests[0].raw,requests[1].raw);
+    assert.equal(requests[0].p_base_version,0);
+    assert.equal(await tab.eval(localSnapshot),original);
+    assert.equal(await tab.eval('cloudSync.context.record.initialImport.digest'),digest);
+    assert.equal(cloudA.trips[0].productMeta.测试空价.lastPrice,null);
+    assert.equal(cloudA.trips[0].productMeta.测试零价.lastPrice,0);
+    assert.equal(cloudA.trips[0].createdAt,'2026-01-01T00:00:00.123456789Z');
+    assert.deepEqual(cloudA.trips.map(trip=>trip.id),['migration-first','migration-second']);
+  });
+  await check('signed-out source and post-login cloud digest are preserved; repeat migration is blocked', async () => {
+    await logout(tab);
+    assert.equal(await tab.eval(localSnapshot),original);
+    await login(tab,alice.email); await tab.wait(synced);
+    await tab.eval("openCloudPanel();document.getElementById('cloud-audit').click()");
+    await tab.wait(`document.getElementById('cloud-preview').textContent.includes(${JSON.stringify(digest)})`);
+    assert.equal(await tab.eval("document.getElementById('cloud-import-local').hidden"),true);
+    assert.equal(cloudA.version,1);
+  });
+  const occupied=await environment();
+  await seedMigration(occupied.tab); await occupied.tab.reload();
+  await login(occupied.tab,alice.email); await occupied.tab.wait(synced);
+  await check('fresh cloud preflight refuses to stage over an existing ledger', async () => {
+    await reviewMigration(occupied.tab);
+    occupied.cloudA.version=1; occupied.cloudA.trips=structuredClone(cloudA.trips);
+    await approveMigration(occupied.tab);
+    await occupied.tab.wait("document.getElementById('cloud-preview').textContent.includes('云端已有数据')");
+    assert.equal(occupied.requests.length,0);
+  });
+  const changed=await environment();
+  const unchanged=await seedMigration(changed.tab); await changed.tab.reload();
+  await login(changed.tab,alice.email); await changed.tab.wait(synced);
+  await check('a writer winning after preflight cannot be overwritten by the migration', async () => {
+    let release;
+    changed.controls.pause=new Promise(resolve=>{release=resolve;});
+    await reviewMigration(changed.tab); await approveMigration(changed.tab);
+    try {
+      await changed.tab.wait('!!cloudSync.context?.record?.flight');
+      assert.equal(await changed.tab.eval('cloudSync.canWrite'),false);
+      changed.cloudA.version=1;
+      changed.cloudA.trips=[{...structuredClone(cloudA.trips[0]),name:'其他设备版本'}];
+    } finally { release(); changed.controls.pause=null; }
+    await changed.tab.wait(conflict);
+    assert.equal(changed.cloudA.trips[0].name,'其他设备版本');
+    assert.equal(await changed.tab.eval(localSnapshot),unchanged);
+  });
+  const mismatch=await environment();
+  const saved=await seedMigration(mismatch.tab); await mismatch.tab.reload();
+  await login(mismatch.tab,alice.email); await mismatch.tab.wait(synced);
+  await check('a successful commit with a differing fresh readback stops all writes', async () => {
+    mismatch.controls.changeRead=remote=>remote.version===1
+      ? {...remote,trips:[{...remote.trips[0],name:'不一致的模拟回读'},...remote.trips.slice(1)]}:remote;
+    await reviewMigration(mismatch.tab); await approveMigration(mismatch.tab);
+    await mismatch.tab.wait("cloudSync.context?.record?.initialImport?.status==='different'");
+    assert.equal(await mismatch.tab.eval('cloudSync.canWrite'),false);
+    assert.equal(await mismatch.tab.eval(localSnapshot),saved);
+    assert.equal(mismatch.requests.length,1);
+  });
+  await browser.stop();
 }
 
 async function realApiTests() {
@@ -614,7 +767,8 @@ async function realApiTests() {
   }
   try {
     for (const account of accounts) {
-      const user = await usersApi('POST', '', { email: account.email, password: account.password, email_confirm: true });
+      const user = await usersApi('POST', '', { email: account.email, password: account.password, email_confirm: true,
+        ...(account===accounts[1]?{ app_metadata:{ledger_initial_import:true} }:{}) });
       assert.equal(user.email, account.email);
       assert.match(user.id, /^[0-9a-f-]{36}$/);
       account.id = user.id;
@@ -662,6 +816,27 @@ async function realApiTests() {
       await logout(tab);
       await logout(device);
     });
+    const phoneBrowser = await startBrowser('real-migration');
+    const phone = await phoneBrowser.tab(site,asIPhone);
+    await phone.wait('cloudSync.workerReady',25000);
+    let digest;
+    await check('real Supabase first import round-trips every validated ordered business field', async () => {
+      const before=await seedMigration(phone); await phone.reload();
+      await login(phone,accounts[1].email,accounts[1].password); await phone.wait(synced,35000);
+      await reviewMigration(phone);
+      await approveMigration(phone);
+      await phone.wait("cloudSync.context?.record?.initialImport?.status==='verified'",35000);
+      assert.equal(await phone.eval(localSnapshot),before);
+      digest=await phone.eval('cloudSync.context.record.initialImport.digest');
+      await logout(phone);
+    });
+    await check('independent desktop login rebuilds the real API migration digest from a fresh read', async () => {
+      await login(device,accounts[1].email,accounts[1].password); await device.wait(synced,35000);
+      assert.equal(await device.eval('cloudSync.context.record.base'),1);
+      assert.equal(await device.eval('cloudSync.preview().then(remote=>ledgerDigest(remote.trips))'),digest);
+      await logout(device);
+    });
+    await phoneBrowser.stop();
     await independent.stop();
     await browser.stop();
   } finally {
