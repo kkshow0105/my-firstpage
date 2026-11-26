@@ -134,6 +134,16 @@ body{
 .trip-bar button{flex-shrink:0;border:0;border-radius:10px;padding:10px;color:var(--blue);background:#e9f0ff;font-size:14px;cursor:pointer}
 .trip-overview{padding:6px 16px 0;font-size:12px;color:var(--secondary);line-height:1.6;overflow-wrap:anywhere}
 .trip-overview span{display:inline-block;margin-right:10px}
+.trip-context{display:flex;align-items:center;gap:8px;padding-right:12px}
+.trip-context .trip-overview{flex:1;min-width:0}
+.cloud-status{flex:none;margin-top:4px;padding:4px 8px;border:1px solid var(--separator);border-radius:12px;background:var(--card-bg);color:var(--text);font:inherit;font-size:12px;min-height:36px;cursor:pointer}
+.cloud-status[data-attention="true"]{color:var(--red)}
+#modal-cloud [hidden]{display:none!important}
+#modal-cloud .modal-hint{overflow-wrap:anywhere}
+#cloud-preview{max-height:40vh;overflow:auto;padding:12px;background:var(--bg);border-radius:10px;white-space:pre-wrap;overflow-wrap:anywhere;font:inherit;font-size:13px}
+#cloud-commands{display:flex;flex-wrap:wrap;gap:8px;margin-top:12px}
+#cloud-commands button{flex:1 1 135px}
+#cloud-detail{white-space:pre-line}
 .trip-actions{display:flex;gap:8px;flex-wrap:wrap;margin-top:12px}
 .trip-actions button{padding:10px 12px;border:0;border-radius:10px;background:var(--bg);color:var(--blue);font:inherit;font-size:14px;cursor:pointer}
 .trip-actions button.danger{color:var(--red)}
@@ -646,7 +656,10 @@ tr.sys-stock td{color:#856404}
     <button onclick="openTripManager()">管理</button>
     <button onclick="createTripFromUI()">＋ 新建</button>
   </div>
-  <div id="trip-overview" class="trip-overview" aria-live="polite"></div>
+  <div class="trip-context">
+    <div id="trip-overview" class="trip-overview" aria-live="polite"></div>
+    <button class="cloud-status" id="cloud-status" onclick="openCloudPanel()" aria-haspopup="dialog">本地模式</button>
+  </div>
   <div class="tabs">
     <div class="tabs-inner">
       <button class="tab active" onclick="switchTab('customers')">👤 客户订单</button>
@@ -656,13 +669,14 @@ tr.sys-stock td{color:#856404}
     <div class="menu-wrapper" id="menuWrapper">
       <button class="btn-menu" onclick="event.stopPropagation();toggleMenu()" title="功能菜单">⚙️</button>
       <div class="dropdown" id="dropdownMenu">
+        <button type="button" class="dropdown-item" onclick="openCloudPanel()" style="width:100%;background:none;border:0;text-align:left;font:inherit;color:inherit"><span class="d-icon" aria-hidden="true">☁️</span> 云端账本</button>
         <div class="dropdown-item" onclick="openFinanceModal()"><span class="d-icon">💰</span> 查看采购花费/销售额</div>
         <div class="dropdown-item" onclick="doPrint()"><span class="d-icon">🖨️</span> 一键打印清单</div>
         <div class="dropdown-item" onclick="openExportModal()"><span class="d-icon">📥</span> 导出备份数据</div>
         <div class="dropdown-item" onclick="openImportModal()"><span class="d-icon">📤</span> 导入备份数据</div>
         <div class="dropdown-item" onclick="exportRestoreSafety()"><span class="d-icon">🛟</span> 导出恢复前安全副本</div>
         <div class="dropdown-item" onclick="clearAllData()" style="color:var(--red)"><span class="d-icon">🗑️</span> 清空当前行程数据</div>
-        <div class="dropdown-version">v2.0.2</div>
+        <div class="dropdown-version">v3.0.0</div>
       </div>
     </div>
   </div>
@@ -942,9 +956,31 @@ tr.sys-stock td{color:#856404}
   </div>
 </div>
 
+<div class="modal-overlay" id="modal-cloud">
+  <div class="modal-sheet" role="dialog" aria-modal="true" aria-labelledby="cloud-title">
+    <h2 id="cloud-title">云端账本</h2>
+    <p class="modal-hint" id="cloud-legacy">此设备原有的本地账本尚未迁移，退出登录后可继续使用。</p>
+    <p class="modal-hint" id="cloud-detail" role="status"></p>
+    <form id="cloud-login" onsubmit="submitCloudLogin(event)">
+      <div class="form-group"><label for="cloud-email">邮箱</label><input id="cloud-email" type="email" autocomplete="username" autocapitalize="none" required></div>
+      <div class="form-group"><label for="cloud-password">密码</label><input id="cloud-password" type="password" autocomplete="current-password" required></div>
+      <div class="btn-row"><button class="btn btn-primary" id="cloud-login-submit" type="submit" disabled>登录</button></div>
+    </form>
+    <div id="cloud-commands" hidden>
+      <button class="btn btn-ghost" id="cloud-retry" onclick="cloudSync.schedule()">重试同步</button>
+      <button class="btn btn-ghost" id="cloud-show-remote" onclick="showCloudPreview()" hidden>查看云端最新</button>
+      <button class="btn btn-primary" id="cloud-export" onclick="exportCloudPending()" hidden>导出本地待同步数据</button>
+      <button class="btn btn-ghost" id="cloud-logout" onclick="leaveCloud()">退出登录</button>
+    </div>
+    <pre id="cloud-preview" hidden></pre>
+    <div class="btn-row"><button class="btn btn-ghost" onclick="closeCloudPanel()">关闭</button></div>
+  </div>
+</div>
+
 <!-- Toast -->
 <div class="toast" id="toast"></div>
 
+<script src="./cloud.js"></script>
 <script>
 // 行程存储层。单个 localStorage 项一次提交完整账本，业务分配仍由 index.html 负责。
 const BOOK_KEY='dual_table_trip_book_v1';
@@ -953,6 +989,7 @@ const RESTORE_SAFETY_KEY='dual_table_restore_safety_v1';
 const TRIP_STATUSES={'planned':'待出发','active':'进行中','archived':'已归档'};
 let tripBook=null,activeTripId=null,tripEpoch=0,pendingImport=null;
 let importReadToken=0,lastLocalCommit=null;
+let cloudSync=null,cloudBookOwner=null,localProtection=null,cloudLoginBusy=false,cloudPreviewToken=0;
 
 function newTripId(){
   return globalThis.crypto?.randomUUID?.()||'trip-'+Date.now().toString(36)+'-'+Array.from(crypto.getRandomValues(new Uint32Array(4)),n=>n.toString(16)).join('-');
@@ -1032,6 +1069,7 @@ function initializeData(){
 }
 function invalidateTripDrafts(){
   tripEpoch++;importReadToken++;pendingImport=null;
+  clearCloudPreview();
   cancelLongPress();addDraftActive=false;pendingAlloc=null;editingOrderId=null;editingField=null;
   editingNoteId=null;editingPurchasedCtx=null;editingProductPriceCtx=null;editingProductNote=null;
   document.querySelectorAll('.modal-overlay.show').forEach(el=>el.classList.remove('show'));
@@ -1043,7 +1081,7 @@ function loadTrip(id,{remember=true}={}){
   const trip=tripBook.trips.find(t=>t.id===id);
   if(!trip)return false;
   let remembered=true;
-  if(remember){try{localStorage.setItem(ACTIVE_TRIP_KEY,id);}catch{remembered=false;}}
+  if(remember){try{if(cloudBookOwner)remembered=cloudSync.selectTrip(id);else localStorage.setItem(ACTIVE_TRIP_KEY,id);}catch{remembered=false;}}
   invalidateTripDrafts();activeTripId=id;restoreDataState(trip);
   document.getElementById('searchInput').value='';document.getElementById('searchWrap').classList.remove('open');
   document.getElementById('customer-table-container').innerHTML='';document.getElementById('product-table-container').innerHTML='';
@@ -1059,14 +1097,25 @@ function switchTrip(id){
 function canManageTrips(){
   if(dataProtection){toast('数据处于恢复保护中，请先导出恢复资料');return false;}
   if(storageSyncPending){toast('正在同步其他窗口的数据，请稍后重试');return false;}
-  return true;
+  return !!tripBook;
 }
-function readWatchedRaw(){return Object.fromEntries(WATCH_KEYS.map(k=>[k,localStorage.getItem(k)]));}
+function readWatchedRaw(){
+  if(cloudBookOwner)return{[BOOK_KEY]:cloudSync.exportRaw()};
+  return Object.fromEntries(WATCH_KEYS.map(k=>[k,localStorage.getItem(k)]));
+}
 function sameRaw(a,b){return !!a&&WATCH_KEYS.every(k=>a[k]===b[k]);}
 function commitTripBook(candidate,{recovery=false,safety=false,expectedRaw=null}={}){
   if(dataProtection&&!recovery)return false;
   try{
     const validated=validateTripBook(candidate),observed=readWatchedRaw();
+    if(cloudBookOwner){
+      if(expectedRaw&&!sameRaw(observed,expectedRaw))throw Error('当前账号账本已变化，请重新选择备份');
+      if(tripBook.revision===Number.MAX_SAFE_INTEGER)throw Error('存储修订号超出范围');
+      validated.revision=tripBook.revision+1;validated.commitId=newTripId();
+      cloudSync.saveBook(validated,safety?makeAllTripsBackup(tripBook):null);
+      tripBook=validated;
+      return true;
+    }
     if(!sameRaw(observed,expectedRaw||storageBaseline)){
       queueStorageSync();toast('其他窗口已有新数据，本次操作未保存，请重新确认');return false;
     }
@@ -1124,6 +1173,7 @@ function queueStorageSync(){
   },50);
 }
 window.addEventListener('storage',e=>{
+  if(cloudBookOwner)return;
   if(e.key!==null&&!WATCH_KEYS.includes(e.key))return;
   if(e.key===BOOK_KEY&&e.newValue&&lastLocalCommit){
     try{
@@ -1147,19 +1197,19 @@ function renderTripHeader(){
   document.querySelector('.print-title').textContent='📒 双表记账 · '+currentTrip().name;
 }
 function createTrip(name){
-  if(!canManageTrips())return null;
+  if(!canManageTrips()||!canWriteCloud())return null;
   if(!validTripName(name)){toast('请输入1至120字的行程名称');return null;}
   const trip=emptyTrip(name),candidate=cloneData(tripBook);candidate.trips.push(trip);
   if(!commitTripBook(candidate))return null;
   loadTrip(trip.id);toast('已新建行程，可直接录入客户预订');return trip.id;
 }
 function createTripFromUI(){
-  if(!canManageTrips())return;
+  if(!canManageTrips()||!canWriteCloud())return;
   const name=prompt('新行程名称（不需要填写出发日期）');
   if(name!==null)createTrip(name.trim());
 }
 function updateTrip(id,patch){
-  if(!canManageTrips())return false;
+  if(!canManageTrips()||!canWriteCloud())return false;
   if(patch.name!==undefined&&!validTripName(patch.name)){toast('行程名称须为1至120字，不能含换行或首尾空格');return false;}
   const candidate=cloneData(tripBook),trip=candidate.trips.find(t=>t.id===id);
   if(!trip)return false;
@@ -1192,7 +1242,7 @@ function renderTripManager(){
   if(!list.childElementCount)list.textContent='暂无未归档行程，可勾选上方查看已归档行程。';
 }
 function deleteTrip(id){
-  if(!canManageTrips())return false;
+  if(!canManageTrips()||!canWriteCloud())return false;
   const trip=tripBook.trips.find(t=>t.id===id);if(!trip)return false;
   if(!confirm('删除行程「'+trip.name+'」（ID '+id+'）？\n该行程的全部订单、采购流水及商品资料会被删除。建议先导出备份。'))return false;
   if(!confirm('再次确认：永久删除「'+trip.name+'」的全部数据？此操作无法撤销。'))return false;
@@ -1215,6 +1265,11 @@ function doExportFile(type='trip'){
 function exportRestoreSafety(){
   closeMenu();
   try{
+    if(cloudBookOwner){
+      const context=cloudSync.context,backup=cloudSync.isCurrent(context)&&context.record?.safety;
+      if(backup)downloadRecoveryFile(backup,'双表记账_云端恢复前安全副本.json');else toast('此账号暂无恢复前安全副本');
+      return;
+    }
     const raw=localStorage.getItem(RESTORE_SAFETY_KEY);if(!raw){toast('暂无恢复前安全副本');return;}
     const safety=JSON.parse(raw);
     downloadRecoveryFile(safety.backup?{...safety.backup,...(safety.recoveryRaw?{recoveryRaw:safety.recoveryRaw}:{})}:{recoveryFormat:1,...safety},'双表记账_恢复前安全副本.json');
@@ -1267,7 +1322,9 @@ function closeImportModal(){
   pendingImport=null;importReadToken++;
 }
 function openImportModal(){
-  closeMenu();closeImportModal();document.getElementById('modal-import').classList.add('show');
+  closeMenu();
+  if(!canRestoreCloud())return;
+  closeImportModal();document.getElementById('modal-import').classList.add('show');
   document.getElementById('legacy-import-target').hidden=true;document.getElementById('btn-confirm-import').hidden=true;document.getElementById('import-summary').textContent='';
 }
 async function legacyBackupId(state){
@@ -1328,6 +1385,7 @@ function updateImportSummary(){
 }
 function confirmImportBackup(){
   const p=pendingImport;if(!p||p.epoch!==tripEpoch)return;
+  if(!canRestoreCloud())return;
   try{
     if(!sameRaw(readWatchedRaw(),p.expectedRaw))throw Error('账本已被其他操作更新，请重新选择文件');
     let trips=tripBook?cloneData(tripBook.trips):[],selected;
@@ -1349,7 +1407,8 @@ function confirmImportBackup(){
     }
     const candidate=validateTripBook({schemaVersion:1,revision:0,commitId:newTripId(),migration:tripBook?.migration||{status:'complete',recoveredAt:new Date().toISOString()},trips});
     const description=importDescription();
-    if(!confirm(description+'\n\n确定恢复？涉及的原数据将被替换；不会逐条合并。'+(dataProtection?'\n当前处于恢复保护，请先导出原始恢复资料。':'')))return;
+    const target=cloudBookOwner?'\n将恢复到当前云端账号。先保存恢复前安全副本，云端提交时会校验版本。':'';
+    if(!confirm(description+'\n\n确定恢复？涉及的原数据将被替换；不会逐条合并。'+target+(dataProtection?'\n当前处于恢复保护，请先导出原始恢复资料。':'')))return;
     if(!commitTripBook(candidate,{recovery:!!dataProtection,safety:true,expectedRaw:p.expectedRaw}))return;
     loadTrip(selected);toast('备份已恢复，恢复前安全副本可在菜单中导出');
   }catch(err){alert('导入已拒绝，原账本未改动。\n'+err.message);}
@@ -1530,6 +1589,7 @@ function showDataProtection(message,snapshot=null){
   window.scrollTo(0,0);
 }
 function canWriteData(){
+  if(!canWriteCloud())return false;
   if(currentTrip()?.status==='archived'){toast('此行程已归档，请在行程管理中重新启用后再编辑');return false;}
   if(!dataProtection&&!storageSyncPending)return true;
   if(!dataProtection){toast('正在同步其他窗口的数据，请稍后重试');return false;}
@@ -1539,6 +1599,129 @@ function downloadRecoveryFile(value,name){
   const url=URL.createObjectURL(new Blob([JSON.stringify(value,null,2)],{type:'application/json'}));
   const a=document.createElement('a');a.href=url;a.download=name;
   document.body.appendChild(a);a.click();a.remove();setTimeout(()=>URL.revokeObjectURL(url),1000);
+}
+
+function canWriteCloud(){
+  if(!cloudBookOwner||cloudSync.canWrite)return true;
+  toast('当前窗口暂不能修改云端账本，请查看云端状态。');return false;
+}
+function canRestoreCloud(){
+  if(!cloudBookOwner||cloudSync.canRestore)return true;
+  toast('请联网，等当前账号同步完成并处理冲突后再恢复备份。');return false;
+}
+function clearCloudPreview(){
+  cloudPreviewToken++;
+  const preview=document.getElementById('cloud-preview');preview.hidden=true;preview.textContent='';
+}
+function showAccountBook(book){
+  const remembered=activeTripId||cloudSync.selection();
+  tripBook=book;
+  if(book){
+    const trip=book.trips.find(t=>t.id===remembered)||book.trips.find(t=>t.status!=='archived')||book.trips[0];
+    loadTrip(trip.id,{remember:false});return;
+  }
+  invalidateTripDrafts();activeTripId=null;restoreDataState({orders:[],purchaseLogs:[],productMeta:{}});
+  document.getElementById('trip-select').replaceChildren();
+  document.getElementById('trip-overview').textContent='';
+  document.getElementById('searchInput').value='';document.getElementById('searchWrap').classList.remove('open');
+  document.getElementById('customer-table-container').replaceChildren();
+  document.getElementById('product-table-container').replaceChildren();
+  document.getElementById('trip-manager-list').replaceChildren();
+  document.getElementById('alloc-preview-list').replaceChildren();
+  document.getElementById('import-summary').textContent='';
+  document.querySelector('.print-title').textContent='📒 双表记账';
+  financeToggle.total=false;financeToggle.sales=false;renderAll();
+}
+function switchLedgerAccount(context){
+  if(!cloudBookOwner&&context&&dataProtection)localProtection={dataProtection,tripBook,activeTripId};
+  clearTimeout(storageSyncTimer);storageSyncPending=false;lastLocalCommit=null;storageBaseline=null;
+  const message=document.getElementById('toast');clearTimeout(message._timeout);message.classList.remove('show');message.textContent='';
+  closeMenu();
+  dataProtection=null;document.getElementById('data-protection').hidden=true;
+  document.querySelectorAll('.top-bar,.section,.bottom-bar').forEach(el=>el.inert=false);
+  cloudBookOwner=context?.session.userId??null;
+  showAccountBook(null);
+  if(context)return;
+  if(localProtection){
+    ({dataProtection,tripBook,activeTripId}=localProtection);localProtection=null;
+    showDataProtection(dataProtection.message,dataProtection.snapshot);
+  }else initializeData();
+  renderAll();
+}
+function renderCloudStatus(){
+  const context=cloudSync.context,record=context?.record,ready=cloudSync.workerReady,online=navigator.onLine;
+  let status='本地模式',detail=cloudSync.message;
+  if(context){
+    if(record?.conflict){status='同步冲突';detail='此设备和云端都有改动。自动同步已暂停，可查看云端最新账本并导出本机修改。';}
+    else if(!ready){status='待同步';detail='等待安全的 PWA 更新。新版本接管后才连接云端。';}
+    else if(context.blocked||(context.error&&online)){status='同步失败';detail=context.error;}
+    else if(!online){status='离线';detail=record?'修改先保存在此设备，联网后自动同步。':'首次打开此账号需要联网读取云端账本。';}
+    else if(context.busy){status='正在同步';detail='正在与云端核对账本。';}
+    else if(cloudSync.pending()||!record){status='待同步';detail='等待与云端同步。';}
+    else {status='已同步';detail='云端版本 '+record.base+'，此设备暂无待提交修改。';}
+    if(ready&&!context.writer&&!context.blocked)detail+=' 另一个窗口可能正在写入，本窗口暂时只读。';
+    detail=context.session.email+'\n'+detail;
+  }else if(!ready){detail=detail||'请从已更新的 PWA 打开，待新版本接管后登录。';}
+  else if(!online){detail=detail||'请联网后登录。';}
+  const label=document.getElementById('cloud-status');label.textContent=status;
+  label.dataset.attention=String(status==='同步冲突'||status==='同步失败');
+  document.getElementById('cloud-detail').textContent=detail;
+  document.getElementById('cloud-login').hidden=!!context;
+  document.getElementById('cloud-login-submit').disabled=!ready||!online||cloudLoginBusy;
+  document.getElementById('cloud-commands').hidden=!context;
+  document.getElementById('cloud-retry').hidden=!context?.error||context.blocked||!context.writer||!ready||!online;
+  document.getElementById('cloud-show-remote').hidden=!record?.conflict;
+  document.getElementById('cloud-show-remote').disabled=!ready||!online;
+  document.getElementById('cloud-export').hidden=!cloudSync.pending()&&!context?.blocked&&!record?.conflict;
+}
+function openCloudPanel(){
+  closeMenu();if(!cloudSync)return;
+  cloudSync.checkWorker();renderCloudStatus();document.getElementById('modal-cloud').classList.add('show');
+}
+function closeCloudPanel(){
+  document.getElementById('modal-cloud').classList.remove('show');
+  document.getElementById('cloud-password').value='';clearCloudPreview();
+}
+async function submitCloudLogin(event){
+  event.preventDefault();if(cloudLoginBusy||!cloudSync)return;
+  const email=document.getElementById('cloud-email'),password=document.getElementById('cloud-password');
+  const secret=password.value;password.value='';
+  cloudLoginBusy=true;cloudSync.message='正在登录…';renderCloudStatus();
+  try{await cloudSync.signIn(email.value.trim(),secret);}
+  catch(error){cloudSync.message=error.message;}
+  finally{cloudLoginBusy=false;renderCloudStatus();}
+}
+async function leaveCloud(){
+  try{await cloudSync.signOut();toast('已退出云端，回到本地模式');}
+  catch(error){toast(error.message);}
+}
+async function showCloudPreview(){
+  const context=cloudSync.context,token=++cloudPreviewToken;
+  const preview=document.getElementById('cloud-preview');preview.hidden=false;preview.textContent='正在读取云端最新账本…';
+  try{
+    const remote=await cloudSync.preview();
+    if(token!==cloudPreviewToken||!cloudSync.isCurrent(context))return;
+    preview.textContent='云端版本 '+remote.version+'\n'+(remote.trips.length?remote.trips.map(trip=>{
+      const note=text=>text?' · '+text:'';
+      const orders=trip.orders.map(order=>order.customer+' · '+order.product+' × '+order.qty+' · 单价 ¥'+order.sellingPrice+
+        ' · 已采购 '+order.purchased+' · '+(order.isPaid?'已收款':'未收款')+note(order.location)+note(order.note));
+      const purchases=trip.purchaseLogs.map(log=>log.product+' × '+log.qty+' · 成本 ¥'+log.totalCost+note(log.location));
+      const products=Object.entries(trip.productMeta).map(([name,meta])=>name+
+        (meta.lastPrice==null?'':' · 参考价 ¥'+meta.lastPrice)+note(meta.lastLocation)+note(meta.note));
+      return [trip.name+' · '+TRIP_STATUSES[trip.status],trip.orders.length+' 笔订单',...orders,
+        trip.purchaseLogs.length+' 笔采购',...purchases,...(products.length?['商品资料',...products]:[])].join('\n');
+    }).join('\n\n'):'暂无行程');
+  }catch{
+    if(token===cloudPreviewToken&&cloudSync.isCurrent(context))preview.textContent='暂时无法读取云端账本，请检查网络后重试。';
+  }
+}
+function exportCloudPending(){
+  const context=cloudSync.context;
+  if(!context||!cloudSync.isCurrent(context))return;
+  try{
+    if(context.record&&(cloudSync.pending()||context.record.conflict))downloadRecoveryFile(makeAllTripsBackup(context.record.book),'双表记账_本机待同步账本.json');
+    else if(context.blocked){const raw=cloudSync.exportRaw();if(raw)downloadRecoveryFile({recoveryFormat:1,raw},'双表记账_云端缓存恢复资料.json');}
+  }catch{toast('无法导出，请检查此浏览器的存储权限。');}
 }
 function exportRecoveryRaw(){
   if(!dataProtection)return;
@@ -2831,7 +3014,7 @@ function updateStockHint(val){
 // 全局事件
 // ═══════════════════════════════════════════════════════
 document.querySelectorAll('.modal-overlay').forEach(ov=>{
-  ov.addEventListener('click',function(e){if(e.target===this){if(this.id==='modal-add')addDraftActive=false;if(this.id==='modal-import')closeImportModal();this.classList.remove('show');pendingAlloc=null;editingOrderId=null;editingField=null;editingNoteId=null;editingPurchasedCtx=null;editingProductPriceCtx=null;editingProductNote=null;}});
+  ov.addEventListener('click',function(e){if(e.target===this){if(this.id==='modal-add')addDraftActive=false;if(this.id==='modal-import')closeImportModal();if(this.id==='modal-cloud')closeCloudPanel();this.classList.remove('show');pendingAlloc=null;editingOrderId=null;editingField=null;editingNoteId=null;editingPurchasedCtx=null;editingProductPriceCtx=null;editingProductNote=null;}});
 });
 document.getElementById('input-raw-order').addEventListener('keydown',function(e){if(e.key==='Enter')parseAndReview();});
 document.getElementById('input-raw-stock').addEventListener('keydown',function(e){if(e.key==='Enter')previewAllocation();});
@@ -2922,8 +3105,13 @@ if('serviceWorker' in navigator){
 }
 
 // ═══════════════════════════════════════════════════════
-initializeData();
-renderAll();
+if(typeof CloudLedgerSync==='function'){
+  cloudSync=new CloudLedgerSync({onAccount:switchLedgerAccount,onBook:showAccountBook,onStatus:renderCloudStatus,
+    validateBook:validateTripBook,validateTrips,bookFromRemote:(trips,previous)=>validateTripBook({
+      schemaVersion:1,revision:(previous?.revision??-1)+1,commitId:newTripId(),migration:{status:'complete'},
+      trips:trips.length?trips:[emptyTrip('新行程')]})});
+  cloudSync.start();
+}else{initializeData();renderAll();}
 </script>
 </body>
 </html>

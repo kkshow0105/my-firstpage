@@ -1,6 +1,6 @@
 # 双表记账
 
-当前应用版本：v2.0.2。原生 HTML / CSS / JavaScript + LocalStorage + Service Worker，无后端、无新增依赖。
+当前应用版本为 v3.0.0。使用原生 HTML、CSS 和 JavaScript。默认使用本地账本，也可主动登录独立的 Supabase 云端账本。
 
 ## 行程与备份
 
@@ -32,7 +32,11 @@
 
 新版本安装完成后显示“发现新版本”，点击“立即更新”后切换并刷新一次；“稍后”可关闭本次提示。首次安装及核心缓存失败时不会提示更新。
 
-Service Worker 缓存版本升级为 `shuangbiao-v8`。记账脚本继续内嵌在 HTML 中，避免旧缓存切换期间 HTML 与外部脚本不配套。离线时可切换、录入、保存和刷新。
+Service Worker 缓存版本为 `shuangbiao-v9`。仅缓存应用离线打开所需的同源静态资源，云端登录和账本请求直接走网络。离线时仍可切换、录入、保存和刷新。
+
+## 云端账本
+
+新 Worker 接管后，可从设置菜单登录云端账号。原本地账本与云端账本分别保存，退出云端账号即可回到本地模式。云端修改先保存到本机，联网后自动尝试同步。两个设备同时改动造成冲突时，页面会保留本机修改并暂停提交，可查看云端最新状态和导出本机备份。更多内容见 [云端同步说明](supabase/M5-frontend-sync.md)。
 
 ## 自动化测试
 
@@ -46,6 +50,7 @@ node tests/print-ui-metadata-sw.cjs
 node tests/final-single-window.cjs
 node tests/pwa-update.cjs
 node tests/multi-trips.cjs
+node tests/cloud-sync.cjs
 ```
 
 测试使用独立临时浏览器和随机本地地址，不读取实际使用中的账本。人工验收及本次回归说明见 [MULTI-TRIP-RETEST.md](MULTI-TRIP-RETEST.md)。
